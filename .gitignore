@@ -1,0 +1,5 @@
+storage/cache/*.json
+config.local.php
+.env
+.env.*
+!.env.example
