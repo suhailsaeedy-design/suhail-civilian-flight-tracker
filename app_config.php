@@ -46,6 +46,12 @@ if (($value = $envString('FLIGHT_TRACKER_MODE')) !== null) {
 
 if (($value = $envString('AVIATIONSTACK_KEY')) !== null) {
     $config['aviationstack_key'] = $value;
+
+    // If a private API key is present and mode was not explicitly set,
+    // automatically enable live mode.
+    if ($envString('FLIGHT_TRACKER_MODE') === null) {
+        $config['mode'] = 'live';
+    }
 }
 
 if (($value = $envString('AVIATIONSTACK_PLAN')) !== null) {
