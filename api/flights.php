@@ -279,6 +279,102 @@ function providerRequest(string $url, int $timeout): array
     ];
 }
 
+function waitForLiveProviderSlot(int $minIntervalMs = 1200): void
+{
+    $redis = redisClient();
+
+    if ($redis instanceof Redis) {
+        $key = 'flight_tracker:v7:live_provider_lock';
+        $deadline = microtime(true) + 4.0;
+
+        while (microtime(true) < $deadline) {
+            try {
+                $acquired = $redis->set($key, (string)microtime(true), ['nx', 'px' => $minIntervalMs]);
+                if ($acquired) {
+                    return;
+                }
+            } catch (Throwable) {
+                break;
+            }
+
+            usleep(150000);
+        }
+
+        return;
+    }
+
+    // Conservative fallback for environments without Redis.
+    usleep($minIntervalMs * 1000);
+}
+
+function fetchRegionalAircraft(array $region, int $timeout): array
+{
+    $providers = [
+        [
+            'name' => 'airplanes.live',
+            'url' => sprintf(
+                'https://api.airplanes.live/v2/point/%s/%s/%s',
+                rawurlencode((string)$region['lat']),
+                rawurlencode((string)$region['lon']),
+                rawurlencode((string)$region['radius_nm'])
+            ),
+        ],
+        [
+            'name' => 'adsb.lol',
+            'url' => sprintf(
+                'https://api.adsb.lol/v2/point/%s/%s/%s',
+                rawurlencode((string)$region['lat']),
+                rawurlencode((string)$region['lon']),
+                rawurlencode((string)$region['radius_nm'])
+            ),
+        ],
+    ];
+
+    $errors = [];
+
+    foreach ($providers as $provider) {
+        waitForLiveProviderSlot();
+        $response = providerRequest($provider['url'], $timeout);
+
+        if (!$response['ok']) {
+            $errors[] = [
+                'provider' => $provider['name'],
+                'status' => $response['status'] ?? 0,
+                'error' => $response['error'] ?? '',
+            ];
+            continue;
+        }
+
+        $decoded = json_decode($response['body'], true);
+        if (!is_array($decoded) || !is_array($decoded['ac'] ?? null)) {
+            $errors[] = [
+                'provider' => $provider['name'],
+                'status' => $response['status'] ?? 0,
+                'error' => 'Invalid live-position payload.',
+            ];
+            continue;
+        }
+
+        // A successful response is accepted even when the region has zero
+        // aircraft; that is truthful provider coverage for that query.
+        return [
+            'ok' => true,
+            'provider' => $provider['name'],
+            'aircraft' => $decoded['ac'],
+            'source_total' => (int)($decoded['total'] ?? count($decoded['ac'])),
+            'errors' => $errors,
+        ];
+    }
+
+    return [
+        'ok' => false,
+        'provider' => null,
+        'aircraft' => [],
+        'source_total' => 0,
+        'errors' => $errors,
+    ];
+}
+
 function blockedOperator(string $airlineName, string $flightNumber = ''): bool
 {
     $blockedWords = [
@@ -530,8 +626,8 @@ $region = requestRegion();
 $regionId = regionCacheId($region);
 
 $finalCached = cacheRead(
-    'flight_tracker:v6:final:' . $regionId,
-    'final-v6-' . $regionId,
+    'flight_tracker:v7:final:' . $regionId,
+    'final-v7-' . $regionId,
     $finalCacheSeconds
 );
 
@@ -627,53 +723,48 @@ if (!is_array($metadataPayload) || !is_array($metadataPayload['data'] ?? null)) 
 $metadataRows = $metadataPayload['data'];
 unset($metadataPayload['_cache_backend']);
 
-// 2) Get current regional positions from ADSB.lol.
-// The public endpoint is queried server-side and raw data is never returned directly.
-// Only civilian/commercial matches survive the commercial metadata checks below.
+// 2) Get current regional positions from the free live-provider chain.
+// Airplanes.live is primary because it publishes a clear 1 request/second limit.
+// ADSB.lol remains a fallback. Raw records are never returned directly.
 $livePayload = cacheRead(
-    'flight_tracker:v6:adsblol:' . $regionId,
-    'adsblol-v6-' . $regionId,
+    'flight_tracker:v7:live:' . $regionId,
+    'live-v7-' . $regionId,
     $livePositionCacheSeconds
 );
 
 if ($livePayload === null) {
-    $url = sprintf(
-        'https://api.adsb.lol/v2/point/%s/%s/%s',
-        rawurlencode((string)$region['lat']),
-        rawurlencode((string)$region['lon']),
-        rawurlencode((string)$region['radius_nm'])
-    );
+    $liveResult = fetchRegionalAircraft($region, $timeout);
 
-    $response = providerRequest($url, $timeout);
+    if ($liveResult['ok']) {
+        $livePayload = [
+            'cached_at' => gmdate('c'),
+            'provider' => $liveResult['provider'],
+            'aircraft' => $liveResult['aircraft'],
+            'source_total' => $liveResult['source_total'],
+        ];
 
-    if ($response['ok']) {
-        $decoded = json_decode($response['body'], true);
+        cacheWrite(
+            'flight_tracker:v7:live:' . $regionId,
+            'live-v7-' . $regionId,
+            $livePayload
+        );
 
-        if (is_array($decoded) && is_array($decoded['ac'] ?? null)) {
-            $livePayload = [
-                'cached_at' => gmdate('c'),
-                'aircraft' => $decoded['ac'],
-                'source_total' => (int)($decoded['total'] ?? count($decoded['ac'])),
-            ];
-
-            cacheWrite(
-                'flight_tracker:v6:adsblol:' . $regionId,
-                'adsblol-v6-' . $regionId,
-                $livePayload
-            );
+        if (!empty($liveResult['errors'])) {
+            error_log('LIVE_PROVIDER_FALLBACK ' . json_encode([
+                'region' => $region,
+                'selected_provider' => $liveResult['provider'],
+                'prior_errors' => $liveResult['errors'],
+            ], JSON_UNESCAPED_SLASHES));
         }
-    }
-
-    if ($livePayload === null) {
-        error_log('ADSBLOL_ERROR ' . json_encode([
-            'status' => $response['status'] ?? 0,
-            'error' => $response['error'] ?? '',
+    } else {
+        error_log('LIVE_PROVIDER_ERROR ' . json_encode([
             'region' => $region,
+            'errors' => $liveResult['errors'],
         ], JSON_UNESCAPED_SLASHES));
 
         $livePayload = cacheRead(
-            'flight_tracker:v6:adsblol:' . $regionId,
-            'adsblol-v6-' . $regionId,
+            'flight_tracker:v7:live:' . $regionId,
+            'live-v7-' . $regionId,
             $livePositionCacheSeconds,
             true
         );
@@ -684,7 +775,7 @@ if (!is_array($livePayload) || !is_array($livePayload['aircraft'] ?? null)) {
     jsonResponse([
         'ok' => true,
         'mode' => 'live',
-        'provider' => 'aviationstack+adsb.lol',
+        'provider' => 'aviationstack+regional-adsb',
         'coverage_status' => 'live_positions_unavailable',
         'safety' => 'civilian-commercial-only',
         'region' => $region,
@@ -697,11 +788,12 @@ if (!is_array($livePayload) || !is_array($livePayload['aircraft'] ?? null)) {
         ],
         'stale' => false,
         'cached_at' => gmdate('c'),
-        'message' => 'Commercial flight metadata exists, but live positions are unavailable for the requested map area. This does not mean there are no real flights.',
+        'message' => 'Commercial flight metadata exists, but the regional live-position providers are temporarily unavailable. This does not mean there are no real flights.',
     ]);
 }
 
 $regionalAircraft = $livePayload['aircraft'];
+$liveProviderName = (string)($livePayload['provider'] ?? 'regional-adsb');
 unset($livePayload['_cache_backend']);
 
 // Build safe commercial indexes from Aviationstack metadata.
@@ -803,7 +895,7 @@ foreach ($regionalAircraft as $aircraft) {
         }
         $row['aircraft']['icao24'] = $icao24;
 
-        $flight = normalizeFlight($row, 'adsb.lol+aviationstack');
+        $flight = normalizeFlight($row, $liveProviderName . '+aviationstack');
 
         if ($flight !== null && !isset($seen[$flight['id']])) {
             $seen[$flight['id']] = true;
@@ -850,7 +942,7 @@ foreach ($regionalAircraft as $aircraft) {
         'live' => $live,
     ];
 
-    $flight = normalizeFlight($syntheticRow, 'adsb.lol-commercial-prefix');
+    $flight = normalizeFlight($syntheticRow, $liveProviderName . '-commercial-prefix');
 
     if ($flight !== null && !isset($seen[$flight['id']])) {
         $seen[$flight['id']] = true;
@@ -862,9 +954,10 @@ foreach ($regionalAircraft as $aircraft) {
 $coverageStats = [
     'aviationstack_commercial_records' => count($metadataRows),
     'aviationstack_direct_live_positions' => $directAviationstackLive,
+    'live_position_provider' => $liveProviderName,
     'regional_adsb_records' => count($regionalAircraft),
-    'adsblol_exact_commercial_matches' => $matchedExact,
-    'adsblol_commercial_prefix_matches' => $matchedCommercialPrefix,
+    'exact_commercial_matches' => $matchedExact,
+    'commercial_prefix_matches' => $matchedCommercialPrefix,
     'displayable_records' => count($display),
 ];
 
@@ -879,7 +972,7 @@ $message = count($display) > 0
 $payload = [
     'ok' => true,
     'mode' => 'live',
-    'provider' => 'aviationstack+adsb.lol',
+    'provider' => 'aviationstack+' . $liveProviderName,
     'provider_plan' => (string)($config['provider_plan'] ?? 'free'),
     'coverage_status' => $coverageStatus,
     'safety' => 'civilian-commercial-only',
@@ -895,14 +988,14 @@ $payload = [
     'message' => $message,
 ];
 
-error_log('FLIGHT_COVERAGE_V6 ' . json_encode([
+error_log('FLIGHT_COVERAGE_V7 ' . json_encode([
     'region' => $region,
     'stats' => $coverageStats,
 ], JSON_UNESCAPED_SLASHES));
 
 cacheWrite(
-    'flight_tracker:v6:final:' . $regionId,
-    'final-v6-' . $regionId,
+    'flight_tracker:v7:final:' . $regionId,
+    'final-v7-' . $regionId,
     $payload
 );
 jsonResponse($payload);
