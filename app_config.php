@@ -31,7 +31,7 @@ $envString = static function (string $name): ?string {
     return $value !== '' ? $value : null;
 };
 
-$envInt = static function (string $name): ?int {
+$envInt = static function (string $name) use ($envString): ?int {
     $value = $envString($name);
     if ($value === null || !preg_match('/^-?\d+$/', $value)) {
         return null;
