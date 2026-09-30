@@ -1,29 +1,33 @@
 # Render Deployment
 
-This repository is ready for deployment as a Render Web Service.
+This repository is prepared for an online Render deployment.
 
-## Recommended service
+## Architecture
 
-- Runtime: Docker
-- Plan: Free
-- Health check: `/api/health.php`
-- Public service name: `suhail-civilian-flight-tracker`
+The included `render.yaml` creates:
 
-## Secret
+1. `suhail-civilian-flight-tracker` — Docker/PHP Free Web Service
+2. `suhail-flight-cache` — Free Render Key Value service used as a shared Redis-compatible cache
 
-Set this in the Render service environment:
+The web service uses:
+- health check: `/api/health.php`
+- automatic deploy: only after repository checks pass
+- PHP Redis extension
+- local-file fallback if Redis is temporarily unavailable
+
+## Owner-only secret
+
+The live provider key is configured as:
 
 ```
-AVIATIONSTACK_KEY=<private key>
+AVIATIONSTACK_KEY
 ```
 
-Do not put the real value in Git.
+The Blueprint marks it with `sync: false`, so its value is supplied to Render's environment settings and is not committed to Git.
 
-The application automatically switches to live mode when `AVIATIONSTACK_KEY` is present.
+When this variable exists, the application automatically switches to live mode.
 
 ## Free-plan runtime values
-
-The included `render.yaml` sets:
 
 ```
 AVIATIONSTACK_PLAN=free
@@ -32,12 +36,21 @@ FLIGHT_TRACKER_CACHE_SECONDS=25200
 FLIGHT_TRACKER_DAILY_LIMIT=3
 ```
 
-## Important free-hosting behavior
+## Cache and quota protection
 
-Render Free Web Services can spin down after inactivity. The application remains deployable and will restart on the next request.
+Render Free Web Services have an ephemeral filesystem and can spin down when idle. The application therefore prefers the linked Render Key Value service for:
 
-The local filesystem is ephemeral on Free Web Services. Therefore the existing file cache is an optimization, not durable storage. A future production upgrade should move provider-cache and quota counters to a persistent external store before significant public traffic.
+- the latest provider response cache
+- the per-day provider request counter
+
+If Redis is unavailable, the PHP backend falls back to its local file cache.
+
+Important: Render's Free Key Value plan is in-memory and does not provide durable persistence across a Key Value restart. This setup is appropriate for a hobby/public demonstration deployment, but a higher-traffic production deployment should use durable storage and a provider plan with sufficient request quota.
 
 ## Deployment ownership
 
-The public repository contains only deployable source code and non-secret configuration. Owner-only provider credentials belong in the hosting platform's encrypted environment settings.
+- Public repository: source code and non-secret deployment configuration
+- Render environment: private API key
+- `projects_information`: project status, architecture, credential metadata and handoff
+- Public visitors: view/use the deployed application
+- Owner: controls source changes and deployment configuration
