@@ -1,0 +1,12 @@
+{
+  "name": "Suhail Civilian Flight Tracker",
+  "short_name": "Flight Tracker",
+  "description": "Mobile-first 3D civilian and commercial flight tracker.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#06101d",
+  "theme_color": "#07111f",
+  "orientation": "any",
+  "icons": []
+}
