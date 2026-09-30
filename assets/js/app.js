@@ -38,7 +38,9 @@ const state = {
   countryReady: false,
   coverageStatus: 'loading',
   coverageMessage: 'Loading live coverage…',
-  coverageStats: {}
+  coverageStats: {},
+  requestInFlight: false,
+  lastRequestAt: 0
 };
 
 function esc(value) {
@@ -543,13 +545,15 @@ function distanceNm(a, b) {
   return km / 1.852;
 }
 
-function liveQueryRegion() {
+function liveQueryRegions() {
   const selectedCountry = els.country.value;
 
   if (selectedCountry) {
     const feature = state.countryByCode.get(selectedCountry);
+
     if (feature) {
       const bounds = featureBounds(feature);
+
       if (!bounds.isEmpty()) {
         const center = bounds.getCenter();
         const sw = bounds.getSouthWest();
@@ -557,19 +561,79 @@ function liveQueryRegion() {
         const nw = { lng: sw.lng, lat: ne.lat };
         const se = { lng: ne.lng, lat: sw.lat };
         const centerPoint = { lng: center.lng, lat: center.lat };
-        const radius = Math.max(
+
+        const fullRadius = Math.max(
           distanceNm(centerPoint, sw),
           distanceNm(centerPoint, ne),
           distanceNm(centerPoint, nw),
           distanceNm(centerPoint, se)
         );
 
-        return {
-          lat: center.lat,
-          lon: center.lng,
-          radius: Math.max(25, Math.min(250, radius)),
-          scope: 'country'
-        };
+        if (fullRadius <= 250) {
+          return [{
+            lat: center.lat,
+            lon: center.lng,
+            radius: Math.max(25, fullRadius),
+            scope: 'country',
+            sample: 1,
+            sampleCount: 1
+          }];
+        }
+
+        const west = sw.lng;
+        const east = ne.lng;
+        const south = sw.lat;
+        const north = ne.lat;
+
+        // Large-country coverage is sampled rather than falsely claiming a
+        // complete nationwide snapshot. Prefer lower/central bands where most
+        // commercial traffic tends to be concentrated, then add a center point.
+        const fractions = [
+          [0.20, 0.20],
+          [0.50, 0.20],
+          [0.80, 0.20],
+          [0.50, 0.50],
+          [0.20, 0.50],
+          [0.80, 0.50],
+          [0.50, 0.75]
+        ];
+
+        const regions = [];
+
+        for (const [fx, fy] of fractions) {
+          const lon = west + (east - west) * fx;
+          const lat = south + (north - south) * fy;
+
+          if (!pointInFeature([lon, lat], feature)) continue;
+
+          regions.push({
+            lat,
+            lon,
+            radius: 250,
+            scope: 'country-sample',
+            sample: regions.length + 1,
+            sampleCount: 0
+          });
+
+          if (regions.length >= 4) break;
+        }
+
+        if (!regions.length) {
+          regions.push({
+            lat: center.lat,
+            lon: center.lng,
+            radius: 250,
+            scope: 'country-sample',
+            sample: 1,
+            sampleCount: 1
+          });
+        }
+
+        regions.forEach(region => {
+          region.sampleCount = regions.length;
+        });
+
+        return regions;
       }
     }
   }
@@ -581,12 +645,14 @@ function liveQueryRegion() {
     distanceNm(center, bounds.getNorthEast())
   );
 
-  return {
+  return [{
     lat: center.lat,
     lon: center.lng,
     radius: Math.max(25, Math.min(250, radius)),
-    scope: 'viewport'
-  };
+    scope: 'viewport',
+    sample: 1,
+    sampleCount: 1
+  }];
 }
 
 function assignCountries() {
@@ -673,57 +739,133 @@ function highlightCountry(code) {
   }
 }
 
-async function loadFlights() {
+async function loadFlights({ force = false } = {}) {
+  const now = Date.now();
+
+  if (state.requestInFlight) return;
+  if (!force && now - state.lastRequestAt < 20000) return;
+
+  state.requestInFlight = true;
+  state.lastRequestAt = now;
   clearMessage();
   els.loading.classList.remove('hidden');
   els.refresh.disabled = true;
 
   try {
-    const region = liveQueryRegion();
-    const endpoint = new URL(cfg.endpoint, window.location.href);
-    endpoint.searchParams.set('lat', region.lat.toFixed(4));
-    endpoint.searchParams.set('lon', region.lon.toFixed(4));
-    endpoint.searchParams.set('radius', region.radius.toFixed(1));
+    const regions = liveQueryRegions();
+    const payloads = [];
+    const failures = [];
 
-    const response = await fetch(endpoint, { cache: 'no-store' });
-    const payload = await response.json().catch(() => null);
+    for (const region of regions) {
+      const endpoint = new URL(cfg.endpoint, window.location.href);
+      endpoint.searchParams.set('lat', region.lat.toFixed(4));
+      endpoint.searchParams.set('lon', region.lon.toFixed(4));
+      endpoint.searchParams.set('radius', region.radius.toFixed(1));
 
-    if (!response.ok || !payload?.ok) {
-      throw new Error(payload?.error || `Flight request failed (${response.status})`);
+      try {
+        const response = await fetch(endpoint, { cache: 'no-store' });
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload?.ok) {
+          failures.push(payload?.error || `Flight request failed (${response.status})`);
+          continue;
+        }
+
+        payloads.push(payload);
+      } catch (error) {
+        failures.push(error?.message || 'Regional flight request failed.');
+      }
     }
 
-    state.allFlights = Array.isArray(payload.data) ? payload.data : [];
-    state.coverageStatus = payload.coverage_status || (state.allFlights.length ? 'available' : 'unknown');
-    state.coverageMessage = payload.message || '';
-    state.coverageStats = payload.coverage_stats || {};
+    if (!payloads.length) {
+      throw new Error(failures[0] || 'Live flight coverage could not be loaded.');
+    }
+
+    const merged = new Map();
+
+    for (const payload of payloads) {
+      for (const flight of Array.isArray(payload.data) ? payload.data : []) {
+        if (!flight?.id) continue;
+        merged.set(flight.id, flight);
+      }
+    }
+
+    state.allFlights = [...merged.values()];
+
+    const anyAvailable = payloads.some(payload => payload.coverage_status === 'available');
+    const anyUnavailable = payloads.some(payload => payload.coverage_status === 'live_positions_unavailable');
+    const selectedCountry = els.country.value;
+    const selectedName = selectedCountry ? countryName(selectedCountry) : '';
+    const multiRegion = regions.length > 1;
+
+    state.coverageStatus = state.allFlights.length > 0
+      ? 'available'
+      : (anyUnavailable ? 'live_positions_unavailable' : 'no_matching_live_positions');
+
+    if (selectedCountry && multiRegion) {
+      state.coverageMessage = state.allFlights.length > 0
+        ? `Showing civilian/commercial matches from ${regions.length} sampled regions of ${selectedName}. Free coverage is sampled, not a guaranteed complete national snapshot.`
+        : `No civilian/commercial live-position matches were found across ${regions.length} sampled regions of ${selectedName}. This is limited free coverage, not proof that there are no real flights.`;
+    } else {
+      state.coverageMessage = payloads.map(payload => payload.message).find(Boolean)
+        || 'Live coverage is limited by the free data sources.';
+    }
+
+    state.coverageStats = payloads.reduce((acc, payload) => {
+      const stats = payload.coverage_stats || {};
+      for (const [key, value] of Object.entries(stats)) {
+        if (typeof value === 'number') {
+          acc[key] = (acc[key] || 0) + value;
+        }
+      }
+      return acc;
+    }, { sampled_regions: regions.length });
+
     assignCountries();
-    setModeBadge(payload);
-    updateTimestamp(payload);
+
+    const aggregatePayload = {
+      mode: 'live',
+      coverage_status: state.coverageStatus,
+      stale: payloads.some(payload => payload.stale),
+      cached_at: payloads
+        .map(payload => payload.cached_at)
+        .filter(Boolean)
+        .sort()
+        .at(-1),
+      data: state.allFlights
+    };
+
+    setModeBadge(aggregatePayload);
+    updateTimestamp(aggregatePayload);
     render({ fit: false });
 
-    if (payload.coverage_status && payload.coverage_status !== 'available' && !payload.stale) {
+    if (state.coverageStatus !== 'available') {
+      showMessage(state.coverageMessage, 'warning');
+    } else if (aggregatePayload.stale) {
+      showMessage('Showing the latest cached civilian flight positions.', 'warning');
+    } else if (failures.length) {
       showMessage(
-        payload.message || 'Live-position coverage is limited right now. Zero results do not mean zero real flights.',
-        'warning'
-      );
-    } else if (payload.stale) {
-      showMessage(
-        payload.warning || 'Showing the latest cached civilian flight data.',
+        `Some sampled regions could not be loaded. Showing available civilian/commercial coverage from the remaining regions.`,
         'warning'
       );
     }
   } catch (error) {
-    showMessage(error.message || 'Live flight data could not be loaded.');
+    state.coverageStatus = 'live_positions_unavailable';
+    state.coverageMessage = error.message || 'Live flight data could not be loaded.';
+    state.allFlights = [];
+    render({ fit: false });
+    showMessage(state.coverageMessage, 'warning');
   } finally {
     els.loading.classList.add('hidden');
     els.refresh.disabled = false;
+    state.requestInFlight = false;
   }
 }
 
 function resetWorld() {
   els.country.value = '';
   highlightCountry('');
-  map.once('moveend', () => loadFlights());
+  map.once('moveend', () => loadFlights({ force: true }));
   map.flyTo({
     center: [35, 28],
     zoom: 2.3,
@@ -786,7 +928,7 @@ els.search.addEventListener('input', () => render());
 els.country.addEventListener('change', () => {
   highlightCountry(els.country.value);
   render({ fit: false });
-  loadFlights();
+  loadFlights({ force: true });
 });
 
 document.querySelectorAll('[data-status]').forEach(chip => {
@@ -810,7 +952,7 @@ els.clear.addEventListener('click', () => {
   loadFlights();
 });
 
-els.refresh.addEventListener('click', loadFlights);
+els.refresh.addEventListener('click', () => loadFlights({ force: true }));
 els.closeDetail.addEventListener('click', () => els.detail.classList.add('hidden'));
 els.toggle3d.addEventListener('click', () => set3D(!state.map3d));
 els.resetView.addEventListener('click', resetWorld);
@@ -833,8 +975,7 @@ map.on('moveend', () => {
 });
 
 registerServiceWorker();
-loadCountries();
-loadFlights();
+loadCountries().finally(() => loadFlights({ force: true }));
 
 const refreshMs = Math.max(60, Number(cfg.refreshSeconds || 120)) * 1000;
 setInterval(loadFlights, refreshMs);
