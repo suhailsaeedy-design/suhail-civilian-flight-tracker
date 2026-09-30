@@ -7,15 +7,7 @@ header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
 
 $root = dirname(__DIR__);
-$config = require $root . '/config.php';
-$localConfig = $root . '/config.local.php';
-
-if (is_file($localConfig)) {
-    $override = require $localConfig;
-    if (is_array($override)) {
-        $config = array_replace($config, $override);
-    }
-}
+$config = require $root . '/app_config.php';
 
 function jsonResponse(array $payload, int $status = 200): never
 {
