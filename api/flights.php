@@ -142,7 +142,7 @@ function cacheDir(): string
 
 function cacheFile(): string
 {
-    return cacheDir() . '/flights.json';
+    return cacheDir() . '/flights-v3.json';
 }
 
 function ensureCacheDir(): void
@@ -169,7 +169,7 @@ function readCache(int $maxAge, bool $allowStale = false): ?array
     $redis = redisClient();
     if ($redis instanceof Redis) {
         try {
-            $raw = $redis->get('flight_tracker:latest_flights');
+            $raw = $redis->get('flight_tracker:v3:latest_flights');
             if (is_string($raw) && $raw !== '') {
                 $decoded = json_decode($raw, true);
                 if (is_array($decoded)) {
@@ -216,7 +216,7 @@ function writeCache(array $payload): void
         $redis = redisClient();
         if ($redis instanceof Redis) {
             try {
-                $redis->set('flight_tracker:latest_flights', $encoded);
+                $redis->set('flight_tracker:v3:latest_flights', $encoded);
             } catch (Throwable) {
                 // Local file fallback still runs below.
             }
@@ -366,13 +366,10 @@ function isAllowedCivilianFlight(array $row): bool
     $airlineName = trim((string)($row['airline']['name'] ?? ''));
     $airlineIata = strtoupper(trim((string)($row['airline']['iata'] ?? '')));
     $flightNumber = trim((string)($row['flight']['iata'] ?? $row['flight']['number'] ?? ''));
-    $dep = strtoupper(trim((string)($row['departure']['iata'] ?? '')));
-    $arr = strtoupper(trim((string)($row['arrival']['iata'] ?? '')));
 
-    // A named airline, identifiable flight and route are required.
-    // Airline IATA is useful metadata but is not required because some valid
-    // commercial provider records omit it.
-    if ($airlineName === '' || $flightNumber === '' || $dep === '' || $arr === '') {
+    // Require a named airline and an identifiable flight. Route fields are
+    // useful metadata but are not mandatory because valid live records may omit them.
+    if ($airlineName === '' || $flightNumber === '') {
         return false;
     }
 
@@ -505,51 +502,105 @@ if ($dailyLimit > 0 && $usedToday >= $dailyLimit) {
     );
 }
 
-$params = http_build_query([
-    'access_key' => $key,
-    'flight_status' => 'active',
-    'limit' => max(10, min(100, (int)($config['request_limit'] ?? 100))),
-]);
-
-$url = 'https://api.aviationstack.com/v1/flights?' . $params;
+$requestLimit = max(10, min(100, (int)($config['request_limit'] ?? 100)));
 $timeout = max(5, min(30, (int)($config['http_timeout_seconds'] ?? 15)));
-$response = providerRequest($url, $timeout);
 
-if (!$response['ok']) {
-    staleFallback(
-        'The live flight-data provider could not be reached right now.',
-        $cacheSeconds
-    );
+// The free profile allows 3 successful provider requests/day in this project.
+// Use the available daily budget to inspect up to 3 pages (up to 300 active
+// records) instead of assuming the first 100 contain enough live coordinates.
+$remainingBudget = $dailyLimit > 0 ? max(0, $dailyLimit - $usedToday) : 3;
+$pageBudget = max(1, min(3, $remainingBudget));
+$providerRows = [];
+$requestsThisRefresh = 0;
+
+for ($page = 0; $page < $pageBudget; $page++) {
+    $params = http_build_query([
+        'access_key' => $key,
+        'flight_status' => 'active',
+        'limit' => $requestLimit,
+        'offset' => $page * $requestLimit,
+    ]);
+
+    $url = 'https://api.aviationstack.com/v1/flights?' . $params;
+    $response = providerRequest($url, $timeout);
+
+    if (!$response['ok']) {
+        if ($providerRows === []) {
+            staleFallback(
+                'The live flight-data provider could not be reached right now.',
+                $cacheSeconds
+            );
+        }
+        break;
+    }
+
+    $decoded = json_decode($response['body'], true);
+    if (!is_array($decoded)) {
+        if ($providerRows === []) {
+            staleFallback(
+                'The live flight-data provider returned an invalid response.',
+                $cacheSeconds
+            );
+        }
+        break;
+    }
+
+    if (isset($decoded['error'])) {
+        if ($providerRows === []) {
+            staleFallback(
+                (string)($decoded['error']['message'] ?? 'The live flight-data provider returned an error.'),
+                $cacheSeconds
+            );
+        }
+        break;
+    }
+
+    $rows = is_array($decoded['data'] ?? null) ? $decoded['data'] : [];
+    foreach ($rows as $row) {
+        if (is_array($row)) {
+            $providerRows[] = $row;
+        }
+    }
+
+    incrementDailyUsage();
+    $requestsThisRefresh++;
+
+    if (count($rows) < $requestLimit) {
+        break;
+    }
 }
 
-$decoded = json_decode($response['body'], true);
-if (!is_array($decoded)) {
-    staleFallback(
-        'The live flight-data provider returned an invalid response.',
-        $cacheSeconds
-    );
-}
-
-if (isset($decoded['error'])) {
-    staleFallback(
-        (string)($decoded['error']['message'] ?? 'The live flight-data provider returned an error.'),
-        $cacheSeconds
-    );
-}
-
+$liveCoordinateRecords = 0;
+$commercialIdentityRecords = 0;
 $normalized = [];
-foreach (($decoded['data'] ?? []) as $row) {
-    if (!is_array($row)) {
-        continue;
+$seenIds = [];
+
+foreach ($providerRows as $row) {
+    $live = is_array($row['live'] ?? null) ? $row['live'] : [];
+    if (is_numeric($live['latitude'] ?? null) && is_numeric($live['longitude'] ?? null)) {
+        $liveCoordinateRecords++;
+    }
+
+    if (isAllowedCivilianFlight($row)) {
+        $commercialIdentityRecords++;
     }
 
     $flight = normalizeFlight($row);
-    if ($flight !== null) {
+    if ($flight !== null && !isset($seenIds[$flight['id']])) {
+        $seenIds[$flight['id']] = true;
         $normalized[] = $flight;
     }
 }
 
-incrementDailyUsage();
+$coverageStats = [
+    'provider_records' => count($providerRows),
+    'live_coordinate_records' => $liveCoordinateRecords,
+    'commercial_identity_records' => $commercialIdentityRecords,
+    'displayable_records' => count($normalized),
+    'requests_this_refresh' => $requestsThisRefresh,
+];
+
+error_log('FLIGHT_COVERAGE ' . json_encode($coverageStats, JSON_UNESCAPED_SLASHES));
 
 $payload = [
     'ok' => true,
@@ -559,12 +610,15 @@ $payload = [
     'safety' => 'civilian-commercial-only',
     'count' => count($normalized),
     'data' => $normalized,
+    'coverage_stats' => $coverageStats,
     'stale' => false,
     'served_from_cache' => false,
     'provider_requests_today' => dailyUsage(),
     'provider_requests_daily_limit' => $dailyLimit,
     'cached_at' => gmdate('c'),
-    'message' => 'Only identifiable commercial airline flights with live coordinates are shown.',
+    'message' => count($normalized) > 0
+        ? 'Identifiable commercial airline flights with live coordinates are shown.'
+        : 'The provider returned active-flight records, but none passed the live-coordinate/commercial display checks.',
 ];
 
 writeCache($payload);
