@@ -35,7 +35,10 @@ const state = {
   countryByCode: new Map(),
   selectedStatus: '',
   map3d: true,
-  countryReady: false
+  countryReady: false,
+  coverageStatus: 'loading',
+  coverageMessage: 'Loading live coverage…',
+  coverageStats: {}
 };
 
 function esc(value) {
@@ -105,8 +108,13 @@ function setModeBadge(payload) {
   }
 
   if (payload?.mode === 'live') {
-    els.modeBadge.textContent = 'LIVE';
-    els.modeBadge.classList.add('ok');
+    if (payload?.coverage_status && payload.coverage_status !== 'available') {
+      els.modeBadge.textContent = 'LIMITED';
+      els.modeBadge.classList.add('warn');
+    } else {
+      els.modeBadge.textContent = 'LIVE';
+      els.modeBadge.classList.add('ok');
+    }
     return;
   }
 
@@ -307,11 +315,19 @@ function renderStats(flights) {
 
 function renderList(flights) {
   if (!flights.length) {
+    const filtered = state.allFlights.length > 0;
+    const title = filtered
+      ? 'No matching flights in current coverage'
+      : 'Live positions are not available right now';
+    const detail = filtered
+      ? 'This does not prove there are no flights. It only means none of the currently tracked commercial flights match this filter.'
+      : (state.coverageMessage || 'The data sources did not provide matching live positions. This does not mean the sky is empty.');
+
     els.list.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">✈</div>
-        <strong>No flights found</strong>
-        <span>Try another country or clear the search.</span>
+        <strong>${esc(title)}</strong>
+        <span>${esc(detail)}</span>
       </div>
     `;
     return;
@@ -433,11 +449,17 @@ function render({ fit = false } = {}) {
   renderMap(flights, fit);
 
   const country = els.country.value;
-  if (country) {
+
+  if (state.coverageStatus !== 'available' && state.allFlights.length === 0) {
+    els.coverage.textContent = state.coverageMessage
+      || 'Live-position coverage is currently unavailable. This does not mean there are no flights.';
+  } else if (country) {
     const name = countryName(country);
-    els.coverage.textContent = `${flights.length} tracked commercial flights currently over ${name}`;
+    els.coverage.textContent = flights.length > 0
+      ? `${flights.length} tracked commercial flights currently over ${name} in current coverage`
+      : `No matched live positions over ${name} in current coverage — not proof of zero real flights`;
   } else {
-    els.coverage.textContent = `${flights.length} live commercial flight records in current free-data coverage`;
+    els.coverage.textContent = `${flights.length} matched civilian/commercial live positions in current free-data coverage`;
   }
 }
 
@@ -604,12 +626,20 @@ async function loadFlights() {
     }
 
     state.allFlights = Array.isArray(payload.data) ? payload.data : [];
+    state.coverageStatus = payload.coverage_status || (state.allFlights.length ? 'available' : 'unknown');
+    state.coverageMessage = payload.message || '';
+    state.coverageStats = payload.coverage_stats || {};
     assignCountries();
     setModeBadge(payload);
     updateTimestamp(payload);
     render({ fit: !els.country.value });
 
-    if (payload.stale) {
+    if (payload.coverage_status && payload.coverage_status !== 'available' && !payload.stale) {
+      showMessage(
+        payload.message || 'Live-position coverage is limited right now. Zero results do not mean zero real flights.',
+        'warning'
+      );
+    } else if (payload.stale) {
       showMessage(
         payload.warning || 'Showing the latest cached civilian flight data.',
         'warning'
