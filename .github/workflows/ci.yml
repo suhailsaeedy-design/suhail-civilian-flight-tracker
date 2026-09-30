@@ -28,7 +28,9 @@ jobs:
           find . -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
 
       - name: JavaScript syntax check
-        run: node --check assets/js/app.js
+        run: |
+          node --input-type=module --check < assets/js/app.js
+          node --check service-worker.js
 
       - name: Application smoke checks
         run: php tests/smoke.php
