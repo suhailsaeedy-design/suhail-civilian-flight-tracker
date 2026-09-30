@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: suhail-civilian-flight-tracker
+    runtime: docker
+    plan: free
+    autoDeployTrigger: commit
+    healthCheckPath: /api/health.php
+    envVars:
+      - key: AVIATIONSTACK_KEY
+        sync: false
+      - key: AVIATIONSTACK_PLAN
+        value: free
+      - key: FLIGHT_TRACKER_REFRESH_SECONDS
+        value: "28800"
+      - key: FLIGHT_TRACKER_CACHE_SECONDS
+        value: "25200"
+      - key: FLIGHT_TRACKER_DAILY_LIMIT
+        value: "3"
