@@ -9,10 +9,12 @@ return [
     'provider_plan' => 'free', // free | paid
     'aviationstack_key' => '',
 
-    // Free-plan-safe defaults: 3 provider calls/day ~= 90 calls/month.
-    // Paid plans can lower refresh/cache intervals and set max_provider_requests_per_day to 0.
-    'refresh_seconds' => 28800, // 8 hours
-    'cache_seconds' => 25200,   // 7 hours
+    // Aviationstack metadata stays within its 100-request/month free quota.
+    // OpenSky live positions are cached separately and refreshed about every 20 minutes.
+    'refresh_seconds' => 1200,
+    'cache_seconds' => 1140,
+    'metadata_cache_seconds' => 25200,
+    'opensky_cache_seconds' => 1140,
     'max_provider_requests_per_day' => 3,
     'request_limit' => 100,
 
