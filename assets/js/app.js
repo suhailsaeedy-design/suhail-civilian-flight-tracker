@@ -518,7 +518,7 @@ function assignCountries() {
 
     for (const feature of state.countries) {
       if (pointInFeature([lon, lat], feature)) {
-        flight._countryCode = feature.properties?.['ISO3166-1-Alpha-2'] || '';
+        flight._countryCode = String(feature.id || '');
         break;
       }
     }
@@ -529,21 +529,24 @@ async function loadCountries() {
   els.country.disabled = true;
 
   try {
-    const response = await fetch(cfg.countryGeoJson, { cache: 'force-cache' });
+    const [response, topojson] = await Promise.all([
+      fetch(cfg.countryGeoJson, { cache: 'force-cache' }),
+      import('https://cdn.jsdelivr.net/npm/topojson-client@3/+esm')
+    ]);
     if (!response.ok) throw new Error('Country boundaries unavailable.');
 
-    const geo = await response.json();
-    state.countries = Array.isArray(geo.features)
-      ? geo.features.filter(f => f.properties?.['ISO3166-1-Alpha-2'] && f.properties?.['ISO3166-1-Alpha-2'] !== '-99')
-      : [];
+    const topology = await response.json();
+    const geo = topojson.feature(topology, topology.objects.countries);
+
+    state.countries = Array.isArray(geo.features) ? geo.features : [];
 
     state.countryByCode = new Map(
-      state.countries.map(feature => [feature.properties['ISO3166-1-Alpha-2'], feature])
+      state.countries.map(feature => [String(feature.id), feature])
     );
 
     const options = state.countries
       .map(feature => ({
-        code: feature.properties['ISO3166-1-Alpha-2'],
+        code: String(feature.id),
         name: feature.properties.name
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
