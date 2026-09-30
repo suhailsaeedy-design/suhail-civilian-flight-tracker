@@ -528,6 +528,67 @@ function featureBounds(feature) {
   return bounds;
 }
 
+function distanceNm(a, b) {
+  const toRad = deg => deg * Math.PI / 180;
+  const earthKm = 6371.0088;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+
+  const km = 2 * earthKm * Math.asin(Math.min(1, Math.sqrt(h)));
+  return km / 1.852;
+}
+
+function liveQueryRegion() {
+  const selectedCountry = els.country.value;
+
+  if (selectedCountry) {
+    const feature = state.countryByCode.get(selectedCountry);
+    if (feature) {
+      const bounds = featureBounds(feature);
+      if (!bounds.isEmpty()) {
+        const center = bounds.getCenter();
+        const sw = bounds.getSouthWest();
+        const ne = bounds.getNorthEast();
+        const nw = { lng: sw.lng, lat: ne.lat };
+        const se = { lng: ne.lng, lat: sw.lat };
+        const centerPoint = { lng: center.lng, lat: center.lat };
+        const radius = Math.max(
+          distanceNm(centerPoint, sw),
+          distanceNm(centerPoint, ne),
+          distanceNm(centerPoint, nw),
+          distanceNm(centerPoint, se)
+        );
+
+        return {
+          lat: center.lat,
+          lon: center.lng,
+          radius: Math.max(25, Math.min(250, radius)),
+          scope: 'country'
+        };
+      }
+    }
+  }
+
+  const center = map.getCenter();
+  const bounds = map.getBounds();
+  const radius = Math.max(
+    distanceNm(center, bounds.getSouthWest()),
+    distanceNm(center, bounds.getNorthEast())
+  );
+
+  return {
+    lat: center.lat,
+    lon: center.lng,
+    radius: Math.max(25, Math.min(250, radius)),
+    scope: 'viewport'
+  };
+}
+
 function assignCountries() {
   if (!state.countryReady) return;
 
@@ -618,7 +679,13 @@ async function loadFlights() {
   els.refresh.disabled = true;
 
   try {
-    const response = await fetch(cfg.endpoint, { cache: 'no-store' });
+    const region = liveQueryRegion();
+    const endpoint = new URL(cfg.endpoint, window.location.href);
+    endpoint.searchParams.set('lat', region.lat.toFixed(4));
+    endpoint.searchParams.set('lon', region.lon.toFixed(4));
+    endpoint.searchParams.set('radius', region.radius.toFixed(1));
+
+    const response = await fetch(endpoint, { cache: 'no-store' });
     const payload = await response.json().catch(() => null);
 
     if (!response.ok || !payload?.ok) {
@@ -632,7 +699,7 @@ async function loadFlights() {
     assignCountries();
     setModeBadge(payload);
     updateTimestamp(payload);
-    render({ fit: !els.country.value });
+    render({ fit: false });
 
     if (payload.coverage_status && payload.coverage_status !== 'available' && !payload.stale) {
       showMessage(
@@ -656,6 +723,7 @@ async function loadFlights() {
 function resetWorld() {
   els.country.value = '';
   highlightCountry('');
+  map.once('moveend', () => loadFlights());
   map.flyTo({
     center: [35, 28],
     zoom: 2.3,
@@ -718,6 +786,7 @@ els.search.addEventListener('input', () => render());
 els.country.addEventListener('change', () => {
   highlightCountry(els.country.value);
   render({ fit: false });
+  loadFlights();
 });
 
 document.querySelectorAll('[data-status]').forEach(chip => {
@@ -737,7 +806,8 @@ els.clear.addEventListener('click', () => {
     x.classList.toggle('active', x.dataset.status === '');
   });
   highlightCountry('');
-  render({ fit: true });
+  render({ fit: false });
+  loadFlights();
 });
 
 els.refresh.addEventListener('click', loadFlights);
@@ -755,9 +825,16 @@ map.on('click', event => {
   }
 });
 
+let viewportReloadTimer;
+map.on('moveend', () => {
+  if (els.country.value) return;
+  clearTimeout(viewportReloadTimer);
+  viewportReloadTimer = setTimeout(() => loadFlights(), 700);
+});
+
 registerServiceWorker();
 loadCountries();
 loadFlights();
 
-const refreshMs = Math.max(60, Number(cfg.refreshSeconds || 28800)) * 1000;
+const refreshMs = Math.max(60, Number(cfg.refreshSeconds || 120)) * 1000;
 setInterval(loadFlights, refreshMs);
