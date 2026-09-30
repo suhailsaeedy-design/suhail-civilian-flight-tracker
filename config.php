@@ -10,11 +10,11 @@ return [
     'aviationstack_key' => '',
 
     // Aviationstack metadata stays within its 100-request/month free quota.
-    // OpenSky live positions are cached separately and refreshed about every 20 minutes.
-    'refresh_seconds' => 1200,
-    'cache_seconds' => 1140,
+    // Regional ADS-B live positions are cached separately and refreshed about every 2 minutes.
+    'refresh_seconds' => 120,
+    'cache_seconds' => 90,
     'metadata_cache_seconds' => 25200,
-    'opensky_cache_seconds' => 1140,
+    'live_position_cache_seconds' => 90,
     'max_provider_requests_per_day' => 3,
     'request_limit' => 100,
 
