@@ -48,15 +48,11 @@ The application works immediately in **DEMO** mode.
 
 ## Enable live civilian/commercial data
 
-Copy:
+The application supports two safe secret-storage methods.
 
-`config.example.php`
+### Option A — local/server config file
 
-to:
-
-`config.local.php`
-
-Then place the private Aviationstack API key in `config.local.php`:
+Copy `config.example.php` to `config.local.php`, then add the private Aviationstack key there:
 
 ```php
 <?php
@@ -68,6 +64,26 @@ return [
 ```
 
 `config.local.php` is ignored by Git and must never be committed.
+
+### Option B — server environment variables
+
+Set these outside the repository:
+
+```
+FLIGHT_TRACKER_MODE=live
+AVIATIONSTACK_KEY=YOUR_PRIVATE_API_KEY
+AVIATIONSTACK_PLAN=free
+```
+
+Optional environment overrides:
+
+```
+FLIGHT_TRACKER_REFRESH_SECONDS=28800
+FLIGHT_TRACKER_CACHE_SECONDS=25200
+FLIGHT_TRACKER_DAILY_LIMIT=3
+```
+
+Environment values have the highest precedence.
 
 ## Free-plan protection
 
@@ -88,6 +104,7 @@ If the live provider is temporarily unavailable, the API can serve the most rece
 ## Security
 
 - No production key is stored in this repository.
+- Runtime secrets can come from Git-ignored `config.local.php` or server environment variables.
 - `.env` and `config.local.php` are ignored.
 - GitHub Actions checks that tracked `config.php` has no API key.
 - The browser interface receives no provider secret.
@@ -115,6 +132,7 @@ GitHub Pages cannot execute PHP, so the full application needs PHP-capable hosti
 ```
 suhail-civilian-flight-tracker/
 ├─ .github/workflows/ci.yml
+├─ app_config.php
 ├─ api/
 │  └─ flights.php
 ├─ assets/
