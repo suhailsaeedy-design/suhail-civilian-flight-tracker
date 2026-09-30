@@ -1,0 +1,6 @@
+.git
+.github
+config.local.php
+.env
+.env.*
+storage/cache/*.json
