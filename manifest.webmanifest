@@ -8,5 +8,12 @@
   "background_color": "#06101d",
   "theme_color": "#07111f",
   "orientation": "any",
-  "icons": []
+  "icons": [
+    {
+      "src": "assets/icons/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }
