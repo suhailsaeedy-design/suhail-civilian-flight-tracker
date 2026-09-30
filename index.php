@@ -1,13 +1,21 @@
 <?php
 declare(strict_types=1);
+
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+
 $config = require __DIR__ . '/config.php';
 $localConfig = __DIR__ . '/config.local.php';
+
 if (is_file($localConfig)) {
     $override = require $localConfig;
     if (is_array($override)) {
         $config = array_replace($config, $override);
     }
 }
+
 $appName = $config['app_name'] ?? 'Suhail Civilian Flight Tracker';
 $isDemo = ($config['mode'] ?? 'demo') !== 'live';
 ?>
@@ -17,7 +25,8 @@ $isDemo = ($config['mode'] ?? 'demo') !== 'live';
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0f172a">
-  <title><?= htmlspecialchars($appName) ?></title>
+  <meta name="description" content="Civilian and commercial flight tracking interface by Suhail Labs.">
+  <title><?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?></title>
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -28,10 +37,11 @@ $isDemo = ($config['mode'] ?? 'demo') !== 'live';
   <div class="brand">
     <div class="brand-mark">✈</div>
     <div>
-      <strong><?= htmlspecialchars($appName) ?></strong>
+      <strong><?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?></strong>
       <small>Commercial & civilian flights only</small>
     </div>
   </div>
+
   <div class="top-actions">
     <span id="modeBadge" class="badge <?= $isDemo ? 'warn' : 'ok' ?>"><?= $isDemo ? 'DEMO' : 'LIVE' ?></span>
     <button id="refreshBtn" class="btn primary" type="button">تازه کول</button>
@@ -62,20 +72,24 @@ $isDemo = ($config['mode'] ?? 'demo') !== 'live';
 
     <div class="panel">
       <h2>لټون او فلټر</h2>
+
       <label>
         Flight / Airline / Airport
-        <input id="searchInput" type="search" placeholder="مثلاً EK, Dubai, KBL">
+        <input id="searchInput" type="search" autocomplete="off" placeholder="مثلاً EK, Dubai, KBL">
       </label>
+
       <div class="grid2">
         <label>
           له کوم ځایه
-          <input id="originInput" type="text" placeholder="IATA / Airport">
+          <input id="originInput" type="text" autocomplete="off" placeholder="IATA / Airport">
         </label>
+
         <label>
           کوم ځای ته
-          <input id="destinationInput" type="text" placeholder="IATA / Airport">
+          <input id="destinationInput" type="text" autocomplete="off" placeholder="IATA / Airport">
         </label>
       </div>
+
       <label>
         حالت
         <select id="statusSelect">
@@ -86,6 +100,7 @@ $isDemo = ($config['mode'] ?? 'demo') !== 'live';
           <option value="cancelled">Cancelled</option>
         </select>
       </label>
+
       <button id="clearFiltersBtn" class="btn ghost" type="button">فلټر پاکول</button>
     </div>
 
@@ -99,13 +114,15 @@ $isDemo = ($config['mode'] ?? 'demo') !== 'live';
   </section>
 
   <section class="map-wrap">
-    <div id="map"></div>
+    <div id="map" aria-label="Civilian flight map"></div>
+
     <div id="detailCard" class="detail-card hidden">
       <button id="closeDetailBtn" class="close-btn" type="button" aria-label="Close">×</button>
       <div id="detailContent"></div>
     </div>
+
     <div id="loading" class="loading hidden">د الوتنو معلومات رااخیستل کېږي…</div>
-    <div id="errorBox" class="error-box hidden"></div>
+    <div id="errorBox" class="error-box hidden" role="status" aria-live="polite"></div>
   </section>
 </main>
 
@@ -113,7 +130,7 @@ $isDemo = ($config['mode'] ?? 'demo') !== 'live';
 window.APP_CONFIG = {
   endpoint: 'api/flights.php',
   demo: <?= $isDemo ? 'true' : 'false' ?>,
-  refreshSeconds: <?= (int)($config['refresh_seconds'] ?? 300) ?>
+  refreshSeconds: <?= max(60, (int)($config['refresh_seconds'] ?? 28800)) ?>
 };
 </script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
