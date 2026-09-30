@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: PHP syntax check
+        run: |
+          find . -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
+
+      - name: JavaScript syntax check
+        run: node --check assets/js/app.js
+
+      - name: Secret-file safety check
+        run: |
+          test ! -f config.local.php
+          test ! -f .env
+          if grep -nE "'aviationstack_key'[[:space:]]*=>[[:space:]]*'[^']+'" config.php; then
+            echo "A non-empty Aviationstack key was found in tracked config.php"
+            exit 1
+          fi
