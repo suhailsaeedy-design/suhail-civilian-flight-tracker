@@ -132,7 +132,7 @@ $isDemo = ($config['mode'] ?? 'demo') !== 'live';
       <footer class="sidebar-footer">
         <span>Civilian/commercial flights only.</span>
         <span>3D map: MapLibre + OpenFreeMap.</span>
-        <span>Live positions: OpenSky Network; commercial metadata: Aviationstack.</span>
+        <span>Live positions: ADSB.lol (ODbL); commercial metadata: Aviationstack.</span>
       </footer>
     </aside>
 
@@ -150,7 +150,7 @@ $isDemo = ($config['mode'] ?? 'demo') !== 'live';
 window.APP_CONFIG = {
   endpoint: 'api/flights.php',
   demo: <?= $isDemo ? 'true' : 'false' ?>,
-  refreshSeconds: <?= max(60, (int)($config['refresh_seconds'] ?? 28800)) ?>,
+  refreshSeconds: <?= max(60, (int)($config['refresh_seconds'] ?? 120)) ?>,
   mapStyle: 'https://tiles.openfreemap.org/styles/liberty',
   countryGeoJson: 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json'
 };
