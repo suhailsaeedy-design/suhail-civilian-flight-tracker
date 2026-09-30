@@ -18,6 +18,9 @@ $requiredFiles = [
     'Dockerfile',
     'render.yaml',
     'api/health.php',
+    'manifest.webmanifest',
+    'service-worker.js',
+    'assets/icons/app-icon.svg',
 ];
 
 foreach ($requiredFiles as $file) {
