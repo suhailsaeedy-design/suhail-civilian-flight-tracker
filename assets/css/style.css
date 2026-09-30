@@ -62,7 +62,7 @@ input:focus,select:focus{border-color:var(--accent)}
 .detail-field b{font-size:12px}
 .loading,.error-box{position:absolute;z-index:950;bottom:18px;left:50%;transform:translateX(-50%);padding:10px 14px;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
 .loading{background:#0d2237;border:1px solid var(--line)}
-.error-box{background:#3a1420;border:1px solid #7f1d1d;color:#fecdd3}
+.error-box{background:#3a1420;border:1px solid #7f1d1d;color:#fecdd3}\n.error-box.warning{background:#3a2d10;border-color:#854d0e;color:#fde68a}
 .empty{padding:24px;text-align:center;color:var(--muted);font-size:12px}
 @media (max-width:880px){
   body{overflow:auto}
