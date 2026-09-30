@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 $config = require $root . '/config.php';
+$runtimeConfig = require $root . '/app_config.php';
 
 $failures = [];
 
@@ -13,6 +14,7 @@ $requiredFiles = [
     'assets/js/app.js',
     'config.php',
     'config.example.php',
+    'app_config.php',
 ];
 
 foreach ($requiredFiles as $file) {
@@ -39,6 +41,14 @@ if ((int)($config['refresh_seconds'] ?? 0) < 60) {
 
 if ((int)($config['max_provider_requests_per_day'] ?? -1) < 0) {
     $failures[] = 'max_provider_requests_per_day cannot be negative.';
+}
+
+if (!is_array($runtimeConfig)) {
+    $failures[] = 'app_config.php must return an array.';
+}
+
+if (!array_key_exists('aviationstack_key', $runtimeConfig)) {
+    $failures[] = 'Runtime config must expose the aviationstack_key field.';
 }
 
 if ($failures !== []) {
