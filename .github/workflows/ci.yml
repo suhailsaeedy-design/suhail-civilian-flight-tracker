@@ -30,6 +30,9 @@ jobs:
       - name: JavaScript syntax check
         run: node --check assets/js/app.js
 
+      - name: Application smoke checks
+        run: php tests/smoke.php
+
       - name: Secret-file safety check
         run: |
           test ! -f config.local.php
