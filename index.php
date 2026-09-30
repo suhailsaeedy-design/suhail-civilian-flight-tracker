@@ -6,15 +6,7 @@ header('X-Frame-Options: DENY');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
 
-$config = require __DIR__ . '/config.php';
-$localConfig = __DIR__ . '/config.local.php';
-
-if (is_file($localConfig)) {
-    $override = require $localConfig;
-    if (is_array($override)) {
-        $config = array_replace($config, $override);
-    }
-}
+$config = require __DIR__ . '/app_config.php';
 
 $appName = $config['app_name'] ?? 'Suhail Civilian Flight Tracker';
 $isDemo = ($config['mode'] ?? 'demo') !== 'live';
