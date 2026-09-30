@@ -15,6 +15,9 @@ $requiredFiles = [
     'config.php',
     'config.example.php',
     'app_config.php',
+    'Dockerfile',
+    'render.yaml',
+    'api/health.php',
 ];
 
 foreach ($requiredFiles as $file) {
