@@ -132,6 +132,7 @@ $isDemo = ($config['mode'] ?? 'demo') !== 'live';
       <footer class="sidebar-footer">
         <span>Civilian/commercial flights only.</span>
         <span>3D map: MapLibre + OpenFreeMap.</span>
+        <span>Live positions: OpenSky Network; commercial metadata: Aviationstack.</span>
       </footer>
     </aside>
 
