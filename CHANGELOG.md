@@ -18,3 +18,9 @@
 - Default live refresh profile changed from 5 minutes to a free-tier-safe 8 hours.
 - Frontend now marks stale provider data as CACHED.
 - Added security headers and accessibility improvements.
+
+
+### Security/config update
+- Added `app_config.php` as the central runtime configuration loader.
+- Added support for `AVIATIONSTACK_KEY` and related server environment variables.
+- Kept all real secret values outside Git repositories.
