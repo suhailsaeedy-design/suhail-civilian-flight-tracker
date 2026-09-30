@@ -74,3 +74,12 @@
 - Records carrying a military classification flag are rejected before matching.
 - Country selection and map movement now request the relevant regional coverage instead of pretending a free global snapshot is complete.
 - Updated UI attribution and cache intervals.
+
+
+## 2026-09-30 — Rate-safe live-position fallback
+- Production logs confirmed ADSB.lol returned HTTP 429 for a rapid regional request.
+- Added Airplanes.live as the primary regional live-position provider.
+- Kept ADSB.lol as a fallback.
+- Added a server-side live-provider throttle to respect documented provider limits.
+- Kept raw ADS-B data server-side and preserved civilian/commercial-only browser output.
+- Versioned the final cache so prior LIMITED responses are not reused.
