@@ -21,17 +21,36 @@ The application starts in demo mode.
 
 ## Enable live civilian/commercial data
 
-Copy:
+Use one of these methods.
 
-`config.example.php`
+### Local/XAMPP method
 
-to:
+Copy `config.example.php` to `config.local.php` and set:
 
-`config.local.php`
-
-Then set your private API key in `config.local.php`.
+- `mode` to `live`
+- the private `aviationstack_key`
 
 Do not commit `config.local.php`.
+
+### Production environment-secret method
+
+Set these on the server/hosting platform instead of putting a secret in a repository:
+
+```
+FLIGHT_TRACKER_MODE=live
+AVIATIONSTACK_KEY=YOUR_PRIVATE_API_KEY
+AVIATIONSTACK_PLAN=free
+```
+
+Optional:
+
+```
+FLIGHT_TRACKER_REFRESH_SECONDS=28800
+FLIGHT_TRACKER_CACHE_SECONDS=25200
+FLIGHT_TRACKER_DAILY_LIMIT=3
+```
+
+Environment variables override tracked defaults and local config.
 
 ## Free-plan profile
 
