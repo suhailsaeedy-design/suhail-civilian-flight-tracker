@@ -235,7 +235,7 @@ function providerRequest(string $url, int $timeout): array
             CURLOPT_CONNECTTIMEOUT => $timeout,
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_HTTPHEADER => ['Accept: application/json'],
-            CURLOPT_USERAGENT => 'SuhailCivilianFlightTracker/2.0',
+            CURLOPT_USERAGENT => 'SuhailCivilianFlightTracker/2.2 (+https://github.com/suhailsaeedy-design/suhail-civilian-flight-tracker)',
         ]);
 
         $body = curl_exec($ch);
@@ -255,7 +255,7 @@ function providerRequest(string $url, int $timeout): array
         'http' => [
             'timeout' => $timeout,
             'ignore_errors' => true,
-            'header' => "Accept: application/json\r\nUser-Agent: SuhailCivilianFlightTracker/2.0\r\n",
+            'header' => "Accept: application/json\r\nUser-Agent: SuhailCivilianFlightTracker/2.2 (+https://github.com/suhailsaeedy-design/suhail-civilian-flight-tracker)\r\n",
         ],
     ]);
 
@@ -311,9 +311,9 @@ function fetchRegionalAircraft(array $region, int $timeout): array
 {
     $providers = [
         [
-            'name' => 'airplanes.live',
+            'name' => 'adsb.fi',
             'url' => sprintf(
-                'https://api.airplanes.live/v2/point/%s/%s/%s',
+                'https://opendata.adsb.fi/api/v3/lat/%s/lon/%s/dist/%s',
                 rawurlencode((string)$region['lat']),
                 rawurlencode((string)$region['lon']),
                 rawurlencode((string)$region['radius_nm'])
@@ -355,8 +355,6 @@ function fetchRegionalAircraft(array $region, int $timeout): array
             continue;
         }
 
-        // A successful response is accepted even when the region has zero
-        // aircraft; that is truthful provider coverage for that query.
         return [
             'ok' => true,
             'provider' => $provider['name'],
@@ -626,8 +624,8 @@ $region = requestRegion();
 $regionId = regionCacheId($region);
 
 $finalCached = cacheRead(
-    'flight_tracker:v7:final:' . $regionId,
-    'final-v7-' . $regionId,
+    'flight_tracker:v8:final:' . $regionId,
+    'final-v8-' . $regionId,
     $finalCacheSeconds
 );
 
@@ -727,8 +725,8 @@ unset($metadataPayload['_cache_backend']);
 // Airplanes.live is primary because it publishes a clear 1 request/second limit.
 // ADSB.lol remains a fallback. Raw records are never returned directly.
 $livePayload = cacheRead(
-    'flight_tracker:v7:live:' . $regionId,
-    'live-v7-' . $regionId,
+    'flight_tracker:v8:live:' . $regionId,
+    'live-v8-' . $regionId,
     $livePositionCacheSeconds
 );
 
@@ -744,8 +742,8 @@ if ($livePayload === null) {
         ];
 
         cacheWrite(
-            'flight_tracker:v7:live:' . $regionId,
-            'live-v7-' . $regionId,
+            'flight_tracker:v8:live:' . $regionId,
+            'live-v8-' . $regionId,
             $livePayload
         );
 
@@ -763,8 +761,8 @@ if ($livePayload === null) {
         ], JSON_UNESCAPED_SLASHES));
 
         $livePayload = cacheRead(
-            'flight_tracker:v7:live:' . $regionId,
-            'live-v7-' . $regionId,
+            'flight_tracker:v8:live:' . $regionId,
+            'live-v8-' . $regionId,
             $livePositionCacheSeconds,
             true
         );
@@ -988,14 +986,14 @@ $payload = [
     'message' => $message,
 ];
 
-error_log('FLIGHT_COVERAGE_V7 ' . json_encode([
+error_log('FLIGHT_COVERAGE_V8 ' . json_encode([
     'region' => $region,
     'stats' => $coverageStats,
 ], JSON_UNESCAPED_SLASHES));
 
 cacheWrite(
-    'flight_tracker:v7:final:' . $regionId,
-    'final-v7-' . $regionId,
+    'flight_tracker:v8:final:' . $regionId,
+    'final-v8-' . $regionId,
     $payload
 );
 jsonResponse($payload);
