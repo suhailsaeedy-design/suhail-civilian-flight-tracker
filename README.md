@@ -2,178 +2,153 @@
 
 **Live site:** https://suhail-civilian-flight-tracker.onrender.com
 
-A responsive civilian/commercial flight-tracking web application built with PHP, JavaScript, Leaflet, and OpenStreetMap.
+A free, mobile-first 3D civilian/commercial flight tracker built by Suhail Labs.
 
-## Project boundary
+## V2 highlights
 
-This application intentionally displays only identifiable commercial airline flights with route metadata and live coordinates. Unknown, government/military-like, and non-airline targets are excluded by backend filtering.
-
-## Features
-
-- Responsive live map
-- Civilian/commercial flight count
-- Airline count
-- Origin and destination
-- Altitude, speed, and direction
+- English-only interface
+- Mobile-first layout with a bottom control sheet
+- 3D vector map powered by MapLibre GL JS + OpenFreeMap
+- 3D buildings at close zoom levels
+- Live commercial/civilian aircraft markers
+- Country / airspace filter using Natural Earth country boundaries
 - Flight / airline / airport search
-- Origin, destination, and status filters
-- Flight detail panel
-- Demo mode with fictionalized positions
-- Live mode through Aviationstack
-- Server-side API-key protection
-- Server-side cache
-- Free-tier daily request guard
-- Cached-data fallback when the provider is unavailable
-- cURL with HTTP-stream fallback
-- Mobile and desktop layouts
-- Security headers
-- GitHub Actions PHP/JavaScript checks
+- All / Airborne quick filter
+- Route, altitude, speed, heading and aircraft details
+- Scheduled / estimated departure and arrival information when supplied by the provider
+- Terminal and gate details when supplied by the provider
+- Installable PWA
+- Offline app shell and automatic caching of map areas/resources already viewed online
+- Cached-data fallback
+- Mobile and desktop support
+- GitHub Actions CI and Docker deployment checks
 
-## Requirements
+## Data and safety boundary
 
-- PHP 8.1+ (8.2 recommended)
-- Apache or Nginx
-- PHP cURL recommended
-- Internet access for live data and online map assets
+This project intentionally displays identifiable civilian/commercial airline flights only.
 
-No database is required.
+Backend filtering requires:
+- a named airline
+- an identifiable flight number
+- departure and arrival route information
+- live coordinates
 
-## Quick start with XAMPP
+Government/military-like operator names are excluded.
 
-1. Put the repository in:
-   `C:\\xampp\\htdocs\\suhail-civilian-flight-tracker`
-2. Start Apache.
-3. Open:
-   `http://localhost/suhail-civilian-flight-tracker/`
+## Passenger camera
 
-The application works immediately in **DEMO** mode.
+The UI includes a Passenger Camera section, but it only enables a camera link when an airline provides an official public passenger-facing live feed for that flight.
 
-## Enable live civilian/commercial data
+The application does not access private onboard cameras and does not create fake camera streams.
 
-The application supports two safe secret-storage methods.
+## Free-data limitations
 
-### Option A — local/server config file
+The live provider is Aviationstack Free.
 
-Copy `config.example.php` to `config.local.php`, then add the private Aviationstack key there:
+Current free-plan constraints include:
+- 100 provider requests per month
+- real-time flight data
+- no paid Future Flight / full flight-schedule feature
 
-```php
-<?php
-return [
-    'mode' => 'live',
-    'provider_plan' => 'free',
-    'aviationstack_key' => 'YOUR_PRIVATE_API_KEY',
-];
-```
+Because the project must remain free, it does not claim complete worldwide minute-by-minute coverage of every active aircraft. The interface explicitly labels the results as the current free-data coverage.
 
-`config.local.php` is ignored by Git and must never be committed.
-
-### Option B — server environment variables
-
-Set these outside the repository:
-
-```
-FLIGHT_TRACKER_MODE=live
-AVIATIONSTACK_KEY=YOUR_PRIVATE_API_KEY
-AVIATIONSTACK_PLAN=free
-```
-
-Optional environment overrides:
-
-```
-FLIGHT_TRACKER_REFRESH_SECONDS=28800
-FLIGHT_TRACKER_CACHE_SECONDS=25200
-FLIGHT_TRACKER_DAILY_LIMIT=3
-```
-
-Environment values have the highest precedence.
-
-## Free-plan protection
-
-The tracked defaults are intentionally conservative:
-
+The free profile protects quota with:
 - refresh interval: 8 hours
 - cache lifetime: 7 hours
-- successful provider requests/day: maximum 3
+- maximum successful provider requests per day: 3
 
-This is designed to keep a continuously running free-plan installation near the provider's 100-request/month allowance.
+## Country filter
 
-For a paid API plan, override these values only in `config.local.php`.
+Country filtering uses a lightweight Natural Earth / world-atlas boundary dataset in the browser.
 
-## Reliability
+Selecting a country shows tracked commercial aircraft whose current live position falls inside that country boundary. This avoids additional paid country-specific flight API calls.
 
-If the live provider is temporarily unavailable, the API can serve the most recent cached civilian flight data instead of making the application unusable. The interface marks this state as **CACHED**.
+## 3D map
 
-## Security
+Map rendering uses:
+- MapLibre GL JS
+- OpenFreeMap
+- OpenStreetMap-derived vector data
 
-- No production key is stored in this repository.
-- Runtime secrets can come from Git-ignored `config.local.php` or server environment variables.
-- `.env` and `config.local.php` are ignored.
-- GitHub Actions checks that tracked `config.php` has no API key.
-- The browser interface receives no provider secret.
-- See `SECURITY.md` for repository security rules.
+The map can switch between 3D and 2D views.
 
-## CI
+## Offline mode
 
-On pushes and pull requests to `main`, GitHub Actions runs:
+The project is an installable PWA.
 
-- PHP syntax checks
-- JavaScript syntax check
-- application smoke checks
-- secret-file safety checks
+When Offline Map Cache is enabled:
+- the app shell is cached
+- map libraries/styles/resources are cached as they are used
+- previously viewed map areas can remain usable without a connection
+- live aircraft data is not available offline
+
+A full downloadable worldwide 3D map package is intentionally not bundled because it would be extremely large. The free version uses a viewed-area cache instead.
+
+## Live provider secret
+
+The browser never receives the Aviationstack API key directly.
+
+Runtime secrets are loaded server-side through:
+- Render environment variables in production
+- ignored `config.local.php` for local development
 
 ## Deployment
 
-See:
+Production:
+- Render Free Web Service
+- Docker / PHP 8.3 / Apache
+- Singapore region
+- public URL: https://suhail-civilian-flight-tracker.onrender.com
 
-`docs/DEPLOYMENT.md`
+The repository includes:
+- `Dockerfile`
+- `render.yaml`
+- `api/health.php`
+- `docs/RENDER_DEPLOYMENT.md`
 
-GitHub Pages cannot execute PHP, so the full application needs PHP-capable hosting.
+## CI
+
+GitHub Actions validates:
+- PHP syntax
+- JavaScript module syntax
+- service-worker syntax
+- application smoke checks
+- secret-file safety
+- Docker image build
 
 ## Project structure
 
 ```
 suhail-civilian-flight-tracker/
 ├─ .github/workflows/ci.yml
-├─ app_config.php
 ├─ api/
-│  └─ flights.php
+│  ├─ flights.php
+│  └─ health.php
 ├─ assets/
 │  ├─ css/style.css
+│  ├─ icons/app-icon.svg
 │  └─ js/app.js
 ├─ docs/
-│  └─ DEPLOYMENT.md
+│  ├─ DEPLOYMENT.md
+│  └─ RENDER_DEPLOYMENT.md
 ├─ storage/cache/
-├─ tests/
-│  └─ smoke.php
-├─ .editorconfig
-├─ .gitignore
+├─ tests/smoke.php
+├─ app_config.php
 ├─ config.php
 ├─ config.example.php
-├─ config.local.php   # private; create locally
+├─ Dockerfile
 ├─ index.php
+├─ manifest.webmanifest
+├─ render.yaml
+├─ service-worker.js
 ├─ SECURITY.md
 └─ README.md
 ```
 
-## Data notes
+## Attribution / open data
 
-- Demo locations are fictionalized.
-- Live data may be delayed or incomplete.
-- Flights without enough commercial-airline metadata are omitted.
-- Public map tiles should not be treated as an unlimited production tile service.
+- OpenFreeMap / OpenStreetMap data for map rendering
+- MapLibre GL JS for WebGL mapping
+- Natural Earth / world-atlas for lightweight country boundaries
 
-
-## Online deployment
-
-The repository is prepared for Render deployment with:
-
-- Docker-based PHP web service
-- free Render Web Service profile
-- free Render Key Value cache
-- health endpoint at `/api/health.php`
-- automatic deploy only after GitHub CI checks pass
-- encrypted runtime secret placeholder for `AVIATIONSTACK_KEY`
-
-See `docs/RENDER_DEPLOYMENT.md`.
-
-The Redis-compatible Key Value cache is preferred on Render because a Free Web Service has an ephemeral local filesystem. If Key Value is unavailable, the application falls back to the local cache automatically.
+Live aviation data can be delayed or incomplete depending on provider coverage.
