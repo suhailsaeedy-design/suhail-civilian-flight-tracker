@@ -32,6 +32,7 @@ self.addEventListener('activate', event => {
 function isMapResource(url) {
   return url.hostname === 'tiles.openfreemap.org'
     || url.hostname === 'unpkg.com'
+    || url.hostname === 'cdn.jsdelivr.net'
     || url.hostname === 'raw.githubusercontent.com';
 }
 
