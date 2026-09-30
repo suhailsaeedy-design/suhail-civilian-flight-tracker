@@ -18,19 +18,9 @@
     error: document.getElementById('errorBox'),
     detail: document.getElementById('detailCard'),
     detailContent: document.getElementById('detailContent'),
-    closeDetail: document.getElementById('closeDetailBtn')
+    closeDetail: document.getElementById('closeDetailBtn'),
+    modeBadge: document.getElementById('modeBadge')
   };
-
-  const map = L.map('map', {
-    worldCopyJump: true,
-    zoomControl: true,
-    minZoom: 2
-  }).setView([29, 45], 3);
-
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
 
   let allFlights = [];
   let markers = new Map();
@@ -46,7 +36,7 @@
   }
 
   function statusLabel(status) {
-    const map = {
+    const labels = {
       active: 'په هوا کې',
       scheduled: 'Scheduled',
       landed: 'Landed',
@@ -54,17 +44,57 @@
       incident: 'Incident',
       diverted: 'Diverted'
     };
-    return map[String(status || '').toLowerCase()] || (status || 'Unknown');
+    return labels[String(status || '').toLowerCase()] || (status || 'Unknown');
   }
 
-  function showError(message) {
+  function showMessage(message, kind = 'error') {
     els.error.textContent = message;
+    els.error.classList.toggle('warning', kind === 'warning');
     els.error.classList.remove('hidden');
   }
 
-  function clearError() {
+  function clearMessage() {
+    els.error.classList.remove('warning');
     els.error.classList.add('hidden');
   }
+
+  function setModeBadge(payload) {
+    if (!els.modeBadge) return;
+
+    els.modeBadge.classList.remove('ok', 'warn');
+
+    if (payload?.stale) {
+      els.modeBadge.textContent = 'CACHED';
+      els.modeBadge.classList.add('warn');
+      return;
+    }
+
+    if (payload?.mode === 'live') {
+      els.modeBadge.textContent = 'LIVE';
+      els.modeBadge.classList.add('ok');
+      return;
+    }
+
+    els.modeBadge.textContent = 'DEMO';
+    els.modeBadge.classList.add('warn');
+  }
+
+  if (!window.L) {
+    document.getElementById('map').innerHTML = '<div class="empty">Map library could not be loaded. Check the internet connection.</div>';
+    showMessage('Leaflet map library could not be loaded.');
+    return;
+  }
+
+  const map = L.map('map', {
+    worldCopyJump: true,
+    zoomControl: true,
+    minZoom: 2
+  }).setView([29, 45], 3);
+
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
 
   function filters() {
     return {
@@ -77,6 +107,7 @@
 
   function filteredFlights() {
     const f = filters();
+
     return allFlights.filter(x => {
       const haystack = [
         x.flight_number, x.airline, x.airline_iata,
@@ -98,11 +129,14 @@
   function renderStats(flights) {
     els.total.textContent = flights.length;
     els.airborne.textContent = flights.filter(f => String(f.status).toLowerCase() === 'active').length;
-    els.airlines.textContent = new Set(flights.map(f => f.airline_iata || f.airline).filter(Boolean)).size;
+    els.airlines.textContent = new Set(
+      flights.map(f => f.airline_iata || f.airline).filter(Boolean)
+    ).size;
   }
 
   function makePlaneIcon(direction) {
     const dir = Number.isFinite(Number(direction)) ? Number(direction) : 0;
+
     return L.divIcon({
       className: 'plane-icon',
       html: `<div class="plane-marker" style="transform:rotate(${dir}deg)">✈</div>`,
@@ -116,6 +150,7 @@
     const arr = f.arrival || {};
     const live = f.live || {};
     const aircraft = f.aircraft || {};
+
     els.detailContent.innerHTML = `
       <div class="detail-title">
         <div>
@@ -136,6 +171,7 @@
         <div class="detail-field"><small>Direction</small><b>${num(live.direction)}°</b></div>
         <div class="detail-field"><small>Registration</small><b>${esc(aircraft.registration || '—')}</b></div>
       </div>`;
+
     els.detail.classList.remove('hidden');
   }
 
@@ -148,17 +184,29 @@
     flights.forEach(f => {
       const lat = Number(f.live?.lat);
       const lon = Number(f.live?.lon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
-      const marker = L.marker([lat, lon], { icon: makePlaneIcon(f.live?.direction) }).addTo(map);
-      marker.bindTooltip(`${esc(f.flight_number)} · ${esc(f.airline)}`, { direction: 'top' });
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return;
+      }
+
+      const marker = L.marker([lat, lon], {
+        icon: makePlaneIcon(f.live?.direction)
+      }).addTo(map);
+
+      marker.bindTooltip(`${esc(f.flight_number)} · ${esc(f.airline)}`, {
+        direction: 'top'
+      });
+
       marker.on('click', () => showDetail(f));
       markers.set(f.id, marker);
       bounds.push([lat, lon]);
     });
 
-    if (bounds.length > 1) map.fitBounds(bounds, { padding: [45, 45], maxZoom: 5 });
-    else if (bounds.length === 1) map.setView(bounds[0], 6);
+    if (bounds.length > 1) {
+      map.fitBounds(bounds, { padding: [45, 45], maxZoom: 5 });
+    } else if (bounds.length === 1) {
+      map.setView(bounds[0], 6);
+    }
   }
 
   function renderList(flights) {
@@ -184,10 +232,12 @@
 
     els.list.querySelectorAll('.flight-item').forEach(item => {
       item.addEventListener('click', () => {
-        const f = flights.find(x => x.id === item.dataset.flightId);
-        if (!f) return;
-        showDetail(f);
-        const marker = markers.get(f.id);
+        const flight = flights.find(x => x.id === item.dataset.flightId);
+        if (!flight) return;
+
+        showDetail(flight);
+
+        const marker = markers.get(flight.id);
         if (marker) {
           map.flyTo(marker.getLatLng(), Math.max(map.getZoom(), 5), { duration: 0.8 });
           marker.openTooltip();
@@ -203,29 +253,52 @@
     renderMap(flights);
   }
 
+  function updateTimestamp(payload) {
+    const raw = payload?.cached_at
+      || payload?.data?.map(f => f.updated_at).filter(Boolean).sort().at(-1)
+      || null;
+
+    els.lastUpdated.textContent = raw
+      ? new Date(raw).toLocaleString()
+      : new Date().toLocaleString();
+  }
+
   async function loadFlights() {
-    clearError();
+    clearMessage();
     els.loading.classList.remove('hidden');
     els.refresh.disabled = true;
 
     try {
       const response = await fetch(cfg.endpoint, { cache: 'no-store' });
       const payload = await response.json().catch(() => null);
+
       if (!response.ok || !payload?.ok) {
         throw new Error(payload?.error || `Request failed (${response.status})`);
       }
+
       allFlights = Array.isArray(payload.data) ? payload.data : [];
-      els.lastUpdated.textContent = new Date().toLocaleString();
+      setModeBadge(payload);
+      updateTimestamp(payload);
       render();
+
+      if (payload.stale) {
+        showMessage(
+          payload.warning || 'Showing cached civilian flight data because fresh data is temporarily unavailable.',
+          'warning'
+        );
+      }
     } catch (error) {
-      showError(error.message || 'د معلوماتو په اخیستلو کې ستونزه راغله.');
+      showMessage(error.message || 'د معلوماتو په اخیستلو کې ستونزه راغله.');
     } finally {
       els.loading.classList.add('hidden');
       els.refresh.disabled = false;
     }
   }
 
-  [els.search, els.origin, els.destination].forEach(el => el.addEventListener('input', render));
+  [els.search, els.origin, els.destination].forEach(el => {
+    el.addEventListener('input', render);
+  });
+
   els.status.addEventListener('change', render);
 
   els.clear.addEventListener('click', () => {
@@ -237,10 +310,12 @@
   });
 
   els.refresh.addEventListener('click', loadFlights);
-  els.closeDetail.addEventListener('click', () => els.detail.classList.add('hidden'));
+  els.closeDetail.addEventListener('click', () => {
+    els.detail.classList.add('hidden');
+  });
 
   loadFlights();
 
-  const refreshMs = Math.max(60, Number(cfg.refreshSeconds || 300)) * 1000;
+  const refreshMs = Math.max(60, Number(cfg.refreshSeconds || 28800)) * 1000;
   setInterval(loadFlights, refreshMs);
 })();
