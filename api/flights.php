@@ -423,15 +423,30 @@ function normalizeFlight(array $row): ?array
         'departure' => [
             'iata' => (string)($row['departure']['iata'] ?? ''),
             'airport' => (string)($row['departure']['airport'] ?? ''),
+            'scheduled' => (string)($row['departure']['scheduled'] ?? ''),
+            'estimated' => (string)($row['departure']['estimated'] ?? ''),
+            'terminal' => (string)($row['departure']['terminal'] ?? ''),
+            'gate' => (string)($row['departure']['gate'] ?? ''),
+            'timezone' => (string)($row['departure']['timezone'] ?? ''),
+            'delay' => is_numeric($row['departure']['delay'] ?? null) ? (int)$row['departure']['delay'] : null,
         ],
         'arrival' => [
             'iata' => (string)($row['arrival']['iata'] ?? ''),
             'airport' => (string)($row['arrival']['airport'] ?? ''),
+            'scheduled' => (string)($row['arrival']['scheduled'] ?? ''),
+            'estimated' => (string)($row['arrival']['estimated'] ?? ''),
+            'terminal' => (string)($row['arrival']['terminal'] ?? ''),
+            'gate' => (string)($row['arrival']['gate'] ?? ''),
+            'timezone' => (string)($row['arrival']['timezone'] ?? ''),
+            'delay' => is_numeric($row['arrival']['delay'] ?? null) ? (int)$row['arrival']['delay'] : null,
         ],
         'aircraft' => [
             'registration' => $registration,
             'type' => $type ?: '—',
         ],
+        // Passenger-facing camera feeds are shown only when an airline publishes
+        // an official public live feed. No private onboard feeds are accessed.
+        'camera' => null,
         'live' => [
             'lat' => (float)$lat,
             'lon' => (float)$lon,
