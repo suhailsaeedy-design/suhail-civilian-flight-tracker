@@ -65,3 +65,12 @@
 - UI no longer equates a zero provider result with "no flights in the sky."
 - Added explicit LIMITED/coverage messaging and data-source attribution.
 - Separated live-position cache timing from Aviationstack metadata cache timing.
+
+
+## 2026-09-30 — Regional live-position provider migration
+- Removed OpenSky from the runtime path after current OpenSky documentation showed OAuth2 client credentials are expected for programmatic API access and operational live-product use requires prior written agreement.
+- Added ADSB.lol regional live positions through the documented point/radius API.
+- Raw ADS-B records remain server-side; only records matched to commercial airline metadata are returned to the browser.
+- Records carrying a military classification flag are rejected before matching.
+- Country selection and map movement now request the relevant regional coverage instead of pretending a free global snapshot is complete.
+- Updated UI attribution and cache intervals.
