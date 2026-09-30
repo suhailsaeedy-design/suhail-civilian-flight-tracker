@@ -151,7 +151,7 @@ window.APP_CONFIG = {
   demo: <?= $isDemo ? 'true' : 'false' ?>,
   refreshSeconds: <?= max(60, (int)($config['refresh_seconds'] ?? 28800)) ?>,
   mapStyle: 'https://tiles.openfreemap.org/styles/liberty',
-  countryGeoJson: 'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson'
+  countryGeoJson: 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json'
 };
 </script>
 <script type="module" src="assets/js/app.js"></script>
