@@ -3,7 +3,7 @@ services:
     name: suhail-civilian-flight-tracker
     runtime: docker
     plan: free
-    autoDeployTrigger: commit
+    autoDeployTrigger: checksPass
     healthCheckPath: /api/health.php
     envVars:
       - key: AVIATIONSTACK_KEY
@@ -16,3 +16,15 @@ services:
         value: "25200"
       - key: FLIGHT_TRACKER_DAILY_LIMIT
         value: "3"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: suhail-flight-cache
+          property: connectionString
+
+  - type: keyvalue
+    name: suhail-flight-cache
+    plan: free
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
+    persistenceMode: off
