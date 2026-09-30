@@ -159,3 +159,19 @@ suhail-civilian-flight-tracker/
 - Live data may be delayed or incomplete.
 - Flights without enough commercial-airline metadata are omitted.
 - Public map tiles should not be treated as an unlimited production tile service.
+
+
+## Online deployment
+
+The repository is prepared for Render deployment with:
+
+- Docker-based PHP web service
+- free Render Web Service profile
+- free Render Key Value cache
+- health endpoint at `/api/health.php`
+- automatic deploy only after GitHub CI checks pass
+- encrypted runtime secret placeholder for `AVIATIONSTACK_KEY`
+
+See `docs/RENDER_DEPLOYMENT.md`.
+
+The Redis-compatible Key Value cache is preferred on Render because a Free Web Service has an ephemeral local filesystem. If Key Value is unavailable, the application falls back to the local cache automatically.
