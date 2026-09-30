@@ -46,13 +46,13 @@ The application does not access private onboard cameras and does not create fake
 The live stack is hybrid:
 
 - Aviationstack Free: commercial airline identity, route and schedule metadata
-- ADSB.lol: regional live aircraft positions, queried server-side and filtered to commercial/civilian matches only
+- Airplanes.live: primary regional live aircraft positions, queried server-side and filtered to commercial/civilian matches only\n- ADSB.lol: fallback regional live-position provider
 
 Aviationstack's free account currently returns active commercial records for this project but, in production testing, returned no latitude/longitude values in the sampled records. The application therefore does not interpret a zero-position response as "there are no flights."
 
 Current free-data constraints include:
 - Aviationstack: 100 requests per month
-- ADSB.lol: free public API, best-effort regional coverage and no uptime guarantee
+- Airplanes.live: free non-commercial REST API, 1 request/second documented rate limit, no SLA\n- ADSB.lol: free fallback API, best-effort regional coverage
 - no paid Future Flight / full flight-schedule feature
 
 Because the project must remain free, it does not claim complete worldwide minute-by-minute coverage of every active aircraft. The interface explicitly labels the results as the current free-data coverage.
@@ -156,7 +156,7 @@ suhail-civilian-flight-tracker/
 - OpenFreeMap / OpenStreetMap data for map rendering
 - MapLibre GL JS for WebGL mapping
 - Natural Earth / world-atlas for lightweight country boundaries
-- ADSB.lol (ODbL) for regional live aircraft positions
+- Airplanes.live for primary regional live aircraft positions\n- ADSB.lol (ODbL) as the fallback regional live-position source
 - Aviationstack for commercial flight metadata
 
 Live aviation data can be delayed, incomplete or unavailable depending on provider coverage. A zero result is explicitly treated as a coverage result, not proof that no real flights exist.
