@@ -46,20 +46,20 @@ The application does not access private onboard cameras and does not create fake
 The live stack is hybrid:
 
 - Aviationstack Free: commercial airline identity, route and schedule metadata
-- OpenSky Network: current state vectors used for live position fallback
+- ADSB.lol: regional live aircraft positions, queried server-side and filtered to commercial/civilian matches only
 
 Aviationstack's free account currently returns active commercial records for this project but, in production testing, returned no latitude/longitude values in the sampled records. The application therefore does not interpret a zero-position response as "there are no flights."
 
-Current free-plan constraints include:
+Current free-data constraints include:
 - Aviationstack: 100 requests per month
-- OpenSky anonymous state-vector access: daily credit limits
+- ADSB.lol: free public API, best-effort regional coverage and no uptime guarantee
 - no paid Future Flight / full flight-schedule feature
 
 Because the project must remain free, it does not claim complete worldwide minute-by-minute coverage of every active aircraft. The interface explicitly labels the results as the current free-data coverage.
 
-The free profile protects quota with:
-- UI refresh interval: about 20 minutes
-- OpenSky live-position cache: about 19 minutes
+The free profile protects providers with:
+- UI refresh interval: about 2 minutes
+- regional live-position cache: about 90 seconds
 - Aviationstack metadata cache: about 7 hours
 - maximum Aviationstack successful requests per day: 3
 
@@ -67,7 +67,7 @@ The free profile protects quota with:
 
 Country filtering uses a lightweight Natural Earth / world-atlas boundary dataset in the browser.
 
-Selecting a country shows tracked commercial aircraft whose current live position falls inside that country boundary. This avoids additional paid country-specific flight API calls.
+Selecting a country centers a regional live-position query on that country and then filters returned commercial aircraft against the country boundary. Large countries can exceed the free regional query radius, so the interface describes this as current coverage rather than claiming complete national coverage.
 
 ## 3D map
 
@@ -156,7 +156,7 @@ suhail-civilian-flight-tracker/
 - OpenFreeMap / OpenStreetMap data for map rendering
 - MapLibre GL JS for WebGL mapping
 - Natural Earth / world-atlas for lightweight country boundaries
-- OpenSky Network for live aircraft state vectors
+- ADSB.lol (ODbL) for regional live aircraft positions
 - Aviationstack for commercial flight metadata
 
 Live aviation data can be delayed, incomplete or unavailable depending on provider coverage. A zero result is explicitly treated as a coverage result, not proof that no real flights exist.
