@@ -54,3 +54,14 @@
 ### Free-tier limits
 - Future Flight / complete future schedule lists are intentionally omitted because they are not part of the current free Aviationstack plan.
 - Offline mode caches viewed map areas; live aircraft are online-only.
+
+
+## 2026-09-30 — Truthful live-data coverage fix
+- Production logs confirmed 300 Aviationstack active records, 296 commercial-identifiable records and 0 live coordinate records.
+- Added OpenSky Network as a live-position fallback while keeping Aviationstack for commercial metadata.
+- Exact callsign/ICAO24 matches are preferred.
+- Prefix fallback is restricted to commercial airline ICAO prefixes confirmed by Aviationstack metadata.
+- Unknown and military/government-like targets remain excluded.
+- UI no longer equates a zero provider result with "no flights in the sky."
+- Added explicit LIMITED/coverage messaging and data-source attribution.
+- Separated live-position cache timing from Aviationstack metadata cache timing.
