@@ -70,6 +70,71 @@ function demoFlights(): array
     ];
 }
 
+function redisClient(): ?Redis
+{
+    static $client = false;
+
+    if ($client instanceof Redis) {
+        return $client;
+    }
+
+    if ($client === null || !class_exists('Redis')) {
+        return null;
+    }
+
+    $url = trim((string)(getenv('REDIS_URL') ?: ''));
+    if ($url === '') {
+        $client = null;
+        return null;
+    }
+
+    $parts = parse_url($url);
+    if (!is_array($parts) || empty($parts['host'])) {
+        $client = null;
+        return null;
+    }
+
+    try {
+        $redis = new Redis();
+        $host = (string)$parts['host'];
+        $port = (int)($parts['port'] ?? 6379);
+
+        if (($parts['scheme'] ?? 'redis') === 'rediss') {
+            $host = 'tls://' . $host;
+        }
+
+        if (!$redis->connect($host, $port, 2.5)) {
+            $client = null;
+            return null;
+        }
+
+        if (isset($parts['pass']) && $parts['pass'] !== '') {
+            $username = isset($parts['user']) && $parts['user'] !== ''
+                ? rawurldecode((string)$parts['user'])
+                : 'default';
+            $password = rawurldecode((string)$parts['pass']);
+
+            if (!$redis->auth([$username, $password])) {
+                $client = null;
+                return null;
+            }
+        }
+
+        if (!empty($parts['path']) && $parts['path'] !== '/') {
+            $db = (int)ltrim((string)$parts['path'], '/');
+            if ($db > 0) {
+                $redis->select($db);
+            }
+        }
+
+        $client = $redis;
+        return $client;
+    } catch (Throwable) {
+        $client = null;
+        return null;
+    }
+}
+
 function cacheDir(): string
 {
     return dirname(__DIR__) . '/storage/cache';
@@ -88,8 +153,38 @@ function ensureCacheDir(): void
     }
 }
 
+function cachePayloadAge(array $payload): ?int
+{
+    $cachedAt = $payload['cached_at'] ?? null;
+    if (!is_string($cachedAt) || $cachedAt === '') {
+        return null;
+    }
+
+    $timestamp = strtotime($cachedAt);
+    return $timestamp === false ? null : max(0, time() - $timestamp);
+}
+
 function readCache(int $maxAge, bool $allowStale = false): ?array
 {
+    $redis = redisClient();
+    if ($redis instanceof Redis) {
+        try {
+            $raw = $redis->get('flight_tracker:latest_flights');
+            if (is_string($raw) && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    $age = cachePayloadAge($decoded);
+                    if ($allowStale || ($age !== null && $age <= $maxAge)) {
+                        $decoded['cache_backend'] = 'redis';
+                        return $decoded;
+                    }
+                }
+            }
+        } catch (Throwable) {
+            // Fall through to local file cache.
+        }
+    }
+
     $path = cacheFile();
     if (!is_file($path)) {
         return null;
@@ -105,17 +200,36 @@ function readCache(int $maxAge, bool $allowStale = false): ?array
     }
 
     $decoded = json_decode($raw, true);
-    return is_array($decoded) ? $decoded : null;
+    if (!is_array($decoded)) {
+        return null;
+    }
+
+    $decoded['cache_backend'] = 'file';
+    return $decoded;
 }
 
 function writeCache(array $payload): void
 {
+    $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    if (is_string($encoded)) {
+        $redis = redisClient();
+        if ($redis instanceof Redis) {
+            try {
+                $redis->set('flight_tracker:latest_flights', $encoded);
+            } catch (Throwable) {
+                // Local file fallback still runs below.
+            }
+        }
+    }
+
     ensureCacheDir();
-    @file_put_contents(
-        cacheFile(),
-        json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        LOCK_EX
-    );
+    @file_put_contents(cacheFile(), (string)$encoded, LOCK_EX);
+}
+
+function dailyUsageKey(): string
+{
+    return 'flight_tracker:provider_usage:' . gmdate('Y-m-d');
 }
 
 function dailyUsageFile(): string
@@ -125,6 +239,18 @@ function dailyUsageFile(): string
 
 function dailyUsage(): int
 {
+    $redis = redisClient();
+    if ($redis instanceof Redis) {
+        try {
+            $value = $redis->get(dailyUsageKey());
+            if ($value !== false) {
+                return max(0, (int)$value);
+            }
+        } catch (Throwable) {
+            // Fall through to local file counter.
+        }
+    }
+
     $path = dailyUsageFile();
     if (!is_file($path)) {
         return 0;
@@ -136,6 +262,18 @@ function dailyUsage(): int
 
 function incrementDailyUsage(): void
 {
+    $redis = redisClient();
+    if ($redis instanceof Redis) {
+        try {
+            $key = dailyUsageKey();
+            $redis->incr($key);
+            $redis->expire($key, 259200);
+            return;
+        } catch (Throwable) {
+            // Fall through to local file counter.
+        }
+    }
+
     ensureCacheDir();
     $count = dailyUsage() + 1;
     @file_put_contents(
