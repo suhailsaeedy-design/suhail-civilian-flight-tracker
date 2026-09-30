@@ -41,21 +41,27 @@ The UI includes a Passenger Camera section, but it only enables a camera link wh
 
 The application does not access private onboard cameras and does not create fake camera streams.
 
-## Free-data limitations
+## Free-data architecture and limitations
 
-The live provider is Aviationstack Free.
+The live stack is hybrid:
+
+- Aviationstack Free: commercial airline identity, route and schedule metadata
+- OpenSky Network: current state vectors used for live position fallback
+
+Aviationstack's free account currently returns active commercial records for this project but, in production testing, returned no latitude/longitude values in the sampled records. The application therefore does not interpret a zero-position response as "there are no flights."
 
 Current free-plan constraints include:
-- 100 provider requests per month
-- real-time flight data
+- Aviationstack: 100 requests per month
+- OpenSky anonymous state-vector access: daily credit limits
 - no paid Future Flight / full flight-schedule feature
 
 Because the project must remain free, it does not claim complete worldwide minute-by-minute coverage of every active aircraft. The interface explicitly labels the results as the current free-data coverage.
 
 The free profile protects quota with:
-- refresh interval: 8 hours
-- cache lifetime: 7 hours
-- maximum successful provider requests per day: 3
+- UI refresh interval: about 20 minutes
+- OpenSky live-position cache: about 19 minutes
+- Aviationstack metadata cache: about 7 hours
+- maximum Aviationstack successful requests per day: 3
 
 ## Country filter
 
@@ -150,5 +156,7 @@ suhail-civilian-flight-tracker/
 - OpenFreeMap / OpenStreetMap data for map rendering
 - MapLibre GL JS for WebGL mapping
 - Natural Earth / world-atlas for lightweight country boundaries
+- OpenSky Network for live aircraft state vectors
+- Aviationstack for commercial flight metadata
 
-Live aviation data can be delayed or incomplete depending on provider coverage.
+Live aviation data can be delayed, incomplete or unavailable depending on provider coverage. A zero result is explicitly treated as a coverage result, not proof that no real flights exist.
