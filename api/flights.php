@@ -348,32 +348,58 @@ function metadataMatchKeys(array $row): array
     return array_keys($keys);
 }
 
-function openSkyStateToLive(array $state): ?array
+function adsbAircraftToLive(array $aircraft): ?array
 {
-    $lon = $state[5] ?? null;
-    $lat = $state[6] ?? null;
-    $onGround = $state[8] ?? false;
+    $lat = $aircraft['lat'] ?? null;
+    $lon = $aircraft['lon'] ?? null;
+    $altitude = $aircraft['alt_geom'] ?? $aircraft['alt_baro'] ?? null;
 
-    if ($onGround === true || !is_numeric($lat) || !is_numeric($lon)) {
+    if (!is_numeric($lat) || !is_numeric($lon)) {
         return null;
     }
 
-    $altitude = is_numeric($state[13] ?? null)
-        ? (float)$state[13]
-        : (is_numeric($state[7] ?? null) ? (float)$state[7] : null);
-
-    $speedKmh = is_numeric($state[9] ?? null)
-        ? (float)$state[9] * 3.6
-        : null;
+    if (is_string($altitude) && strtolower($altitude) === 'ground') {
+        return null;
+    }
 
     return [
         'latitude' => (float)$lat,
         'longitude' => (float)$lon,
-        'altitude' => $altitude,
-        'speed_horizontal' => $speedKmh,
-        'direction' => is_numeric($state[10] ?? null) ? (float)$state[10] : null,
-        'updated' => is_numeric($state[4] ?? null) ? (int)$state[4] : time(),
+        'altitude' => is_numeric($altitude) ? (float)$altitude * 0.3048 : null,
+        'speed_horizontal' => is_numeric($aircraft['gs'] ?? null)
+            ? (float)$aircraft['gs'] * 1.852
+            : null,
+        'direction' => is_numeric($aircraft['track'] ?? null)
+            ? (float)$aircraft['track']
+            : null,
+        'updated' => time() - (int)round((float)($aircraft['seen'] ?? 0)),
     ];
+}
+
+function requestRegion(): array
+{
+    $lat = isset($_GET['lat']) && is_numeric($_GET['lat']) ? (float)$_GET['lat'] : 34.5553;
+    $lon = isset($_GET['lon']) && is_numeric($_GET['lon']) ? (float)$_GET['lon'] : 69.2075;
+    $radius = isset($_GET['radius']) && is_numeric($_GET['radius']) ? (float)$_GET['radius'] : 250.0;
+
+    $lat = max(-90.0, min(90.0, $lat));
+    $lon = max(-180.0, min(180.0, $lon));
+    $radius = max(10.0, min(250.0, $radius));
+
+    return [
+        'lat' => round($lat, 3),
+        'lon' => round($lon, 3),
+        'radius_nm' => round($radius, 1),
+    ];
+}
+
+function regionCacheId(array $region): string
+{
+    return sha1(
+        number_format((float)$region['lat'], 3, '.', '') . '|' .
+        number_format((float)$region['lon'], 3, '.', '') . '|' .
+        number_format((float)$region['radius_nm'], 1, '.', '')
+    );
 }
 
 function normalizeFlight(array $row, string $positionSource): ?array
@@ -494,16 +520,18 @@ if ($key === '') {
     ], 500);
 }
 
-$finalCacheSeconds = max(300, (int)($config['cache_seconds'] ?? 1140));
+$finalCacheSeconds = max(30, (int)($config['cache_seconds'] ?? 90));
 $metadataCacheSeconds = max(3600, (int)($config['metadata_cache_seconds'] ?? 25200));
-$openSkyCacheSeconds = max(600, (int)($config['opensky_cache_seconds'] ?? 1140));
+$livePositionCacheSeconds = max(30, (int)($config['live_position_cache_seconds'] ?? 90));
 $timeout = max(5, min(30, (int)($config['http_timeout_seconds'] ?? 15)));
 $requestLimit = max(10, min(100, (int)($config['request_limit'] ?? 100)));
 $dailyLimit = max(0, (int)($config['max_provider_requests_per_day'] ?? 3));
+$region = requestRegion();
+$regionId = regionCacheId($region);
 
 $finalCached = cacheRead(
-    'flight_tracker:v5:final',
-    'final-v5',
+    'flight_tracker:v6:final:' . $regionId,
+    'final-v6-' . $regionId,
     $finalCacheSeconds
 );
 
@@ -599,70 +627,82 @@ if (!is_array($metadataPayload) || !is_array($metadataPayload['data'] ?? null)) 
 $metadataRows = $metadataPayload['data'];
 unset($metadataPayload['_cache_backend']);
 
-// 2) Get current positions from OpenSky.
-// Anonymous global state-vector calls are cached for ~19 minutes to stay within free credits.
-$openSkyPayload = cacheRead(
-    'flight_tracker:v5:opensky_states',
-    'opensky-states-v5',
-    $openSkyCacheSeconds
+// 2) Get current regional positions from ADSB.lol.
+// The public endpoint is queried server-side and raw data is never returned directly.
+// Only civilian/commercial matches survive the commercial metadata checks below.
+$livePayload = cacheRead(
+    'flight_tracker:v6:adsblol:' . $regionId,
+    'adsblol-v6-' . $regionId,
+    $livePositionCacheSeconds
 );
 
-if ($openSkyPayload === null) {
-    $response = providerRequest(
-        'https://opensky-network.org/api/states/all?extended=1',
-        $timeout
+if ($livePayload === null) {
+    $url = sprintf(
+        'https://api.adsb.lol/v2/point/%s/%s/%s',
+        rawurlencode((string)$region['lat']),
+        rawurlencode((string)$region['lon']),
+        rawurlencode((string)$region['radius_nm'])
     );
+
+    $response = providerRequest($url, $timeout);
 
     if ($response['ok']) {
         $decoded = json_decode($response['body'], true);
 
-        if (is_array($decoded) && is_array($decoded['states'] ?? null)) {
-            $openSkyPayload = [
+        if (is_array($decoded) && is_array($decoded['ac'] ?? null)) {
+            $livePayload = [
                 'cached_at' => gmdate('c'),
-                'time' => $decoded['time'] ?? time(),
-                'states' => $decoded['states'],
+                'aircraft' => $decoded['ac'],
+                'source_total' => (int)($decoded['total'] ?? count($decoded['ac'])),
             ];
 
             cacheWrite(
-                'flight_tracker:v5:opensky_states',
-                'opensky-states-v5',
-                $openSkyPayload
+                'flight_tracker:v6:adsblol:' . $regionId,
+                'adsblol-v6-' . $regionId,
+                $livePayload
             );
         }
     }
 
-    if ($openSkyPayload === null) {
-        $openSkyPayload = cacheRead(
-            'flight_tracker:v5:opensky_states',
-            'opensky-states-v5',
-            $openSkyCacheSeconds,
+    if ($livePayload === null) {
+        error_log('ADSBLOL_ERROR ' . json_encode([
+            'status' => $response['status'] ?? 0,
+            'error' => $response['error'] ?? '',
+            'region' => $region,
+        ], JSON_UNESCAPED_SLASHES));
+
+        $livePayload = cacheRead(
+            'flight_tracker:v6:adsblol:' . $regionId,
+            'adsblol-v6-' . $regionId,
+            $livePositionCacheSeconds,
             true
         );
     }
 }
 
-if (!is_array($openSkyPayload) || !is_array($openSkyPayload['states'] ?? null)) {
+if (!is_array($livePayload) || !is_array($livePayload['aircraft'] ?? null)) {
     jsonResponse([
         'ok' => true,
         'mode' => 'live',
-        'provider' => 'aviationstack+opensky',
+        'provider' => 'aviationstack+adsb.lol',
         'coverage_status' => 'live_positions_unavailable',
         'safety' => 'civilian-commercial-only',
+        'region' => $region,
         'count' => 0,
         'data' => [],
         'coverage_stats' => [
             'aviationstack_commercial_records' => count($metadataRows),
-            'opensky_states' => 0,
+            'regional_adsb_records' => 0,
             'displayable_records' => 0,
         ],
         'stale' => false,
         'cached_at' => gmdate('c'),
-        'message' => 'Commercial flights exist, but the live-position source is temporarily unavailable. Zero here does not mean zero flights in the sky.',
+        'message' => 'Commercial flight metadata exists, but live positions are unavailable for the requested map area. This does not mean there are no real flights.',
     ]);
 }
 
-$states = $openSkyPayload['states'];
-unset($openSkyPayload['_cache_backend']);
+$regionalAircraft = $livePayload['aircraft'];
+unset($livePayload['_cache_backend']);
 
 // Build safe commercial indexes from Aviationstack metadata.
 $exactCallsignIndex = [];
@@ -718,29 +758,36 @@ foreach ($metadataRows as $row) {
     }
 }
 
-// Enrich commercial metadata with OpenSky positions.
-foreach ($states as $state) {
-    if (!is_array($state)) {
+// Enrich commercial metadata with regional ADSB.lol live positions.
+foreach ($regionalAircraft as $aircraft) {
+    if (!is_array($aircraft)) {
         continue;
     }
 
-    $live = openSkyStateToLive($state);
+    // ADSBExchange-compatible dbFlags uses bit 1 for military classification.
+    // Reject it before any matching or browser-visible processing.
+    $dbFlags = is_numeric($aircraft['dbFlags'] ?? null) ? (int)$aircraft['dbFlags'] : 0;
+    if (($dbFlags & 1) === 1) {
+        continue;
+    }
+
+    $live = adsbAircraftToLive($aircraft);
     if ($live === null) {
         continue;
     }
 
-    $category = is_numeric($state[17] ?? null) ? (int)$state[17] : 0;
-    // Keep airplane-like categories only for prefix fallback.
-    $airplaneCategory = $category === 0 || ($category >= 1 && $category <= 6);
+    $callsign = normalizedToken((string)($aircraft['flight'] ?? ''));
+    $icao24 = strtolower(trim((string)($aircraft['hex'] ?? '')));
 
-    $callsign = normalizedToken((string)($state[1] ?? ''));
-    $icao24 = strtolower(trim((string)($state[0] ?? '')));
+    if ($callsign === '') {
+        continue;
+    }
 
     $rowIndex = null;
 
     if ($icao24 !== '' && isset($icao24Index[$icao24])) {
         $rowIndex = $icao24Index[$icao24];
-    } elseif ($callsign !== '' && isset($exactCallsignIndex[$callsign])) {
+    } elseif (isset($exactCallsignIndex[$callsign])) {
         $rowIndex = $exactCallsignIndex[$callsign];
     }
 
@@ -748,7 +795,15 @@ foreach ($states as $state) {
         $row = $metadataRows[$rowIndex];
         $row['live'] = $live;
 
-        $flight = normalizeFlight($row, 'opensky+aviationstack');
+        if (($row['aircraft']['registration'] ?? '') === '' && !empty($aircraft['r'])) {
+            $row['aircraft']['registration'] = (string)$aircraft['r'];
+        }
+        if (($row['aircraft']['icao'] ?? '') === '' && !empty($aircraft['t'])) {
+            $row['aircraft']['icao'] = (string)$aircraft['t'];
+        }
+        $row['aircraft']['icao24'] = $icao24;
+
+        $flight = normalizeFlight($row, 'adsb.lol+aviationstack');
 
         if ($flight !== null && !isset($seen[$flight['id']])) {
             $seen[$flight['id']] = true;
@@ -759,9 +814,9 @@ foreach ($states as $state) {
         continue;
     }
 
-    // Safe fallback: only expose aircraft whose callsign begins with a
-    // commercial airline ICAO prefix confirmed by Aviationstack metadata.
-    if (!$airplaneCategory || strlen($callsign) < 4) {
+    // Safe fallback: only allow callsigns whose first three characters are a
+    // commercial airline ICAO prefix already confirmed by Aviationstack.
+    if (strlen($callsign) < 4) {
         continue;
     }
 
@@ -788,14 +843,14 @@ foreach ($states as $state) {
         'arrival' => [],
         'aircraft' => [
             'icao24' => $icao24,
-            'registration' => '',
+            'registration' => (string)($aircraft['r'] ?? ''),
             'iata' => '',
-            'icao' => '',
+            'icao' => (string)($aircraft['t'] ?? ''),
         ],
         'live' => $live,
     ];
 
-    $flight = normalizeFlight($syntheticRow, 'opensky-commercial-prefix');
+    $flight = normalizeFlight($syntheticRow, 'adsb.lol-commercial-prefix');
 
     if ($flight !== null && !isset($seen[$flight['id']])) {
         $seen[$flight['id']] = true;
@@ -807,9 +862,9 @@ foreach ($states as $state) {
 $coverageStats = [
     'aviationstack_commercial_records' => count($metadataRows),
     'aviationstack_direct_live_positions' => $directAviationstackLive,
-    'opensky_states' => count($states),
-    'opensky_exact_commercial_matches' => $matchedExact,
-    'opensky_commercial_prefix_matches' => $matchedCommercialPrefix,
+    'regional_adsb_records' => count($regionalAircraft),
+    'adsblol_exact_commercial_matches' => $matchedExact,
+    'adsblol_commercial_prefix_matches' => $matchedCommercialPrefix,
     'displayable_records' => count($display),
 ];
 
@@ -824,10 +879,11 @@ $message = count($display) > 0
 $payload = [
     'ok' => true,
     'mode' => 'live',
-    'provider' => 'aviationstack+opensky',
+    'provider' => 'aviationstack+adsb.lol',
     'provider_plan' => (string)($config['provider_plan'] ?? 'free'),
     'coverage_status' => $coverageStatus,
     'safety' => 'civilian-commercial-only',
+    'region' => $region,
     'count' => count($display),
     'data' => $display,
     'coverage_stats' => $coverageStats,
@@ -839,7 +895,14 @@ $payload = [
     'message' => $message,
 ];
 
-error_log('FLIGHT_COVERAGE_V5 ' . json_encode($coverageStats, JSON_UNESCAPED_SLASHES));
+error_log('FLIGHT_COVERAGE_V6 ' . json_encode([
+    'region' => $region,
+    'stats' => $coverageStats,
+], JSON_UNESCAPED_SLASHES));
 
-cacheWrite('flight_tracker:v5:final', 'final-v5', $payload);
+cacheWrite(
+    'flight_tracker:v6:final:' . $regionId,
+    'final-v6-' . $regionId,
+    $payload
+);
 jsonResponse($payload);
