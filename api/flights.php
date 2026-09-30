@@ -373,6 +373,30 @@ function fetchRegionalAircraft(array $region, int $timeout): array
     ];
 }
 
+function staticCommercialAirlines(): array
+{
+    static $cache = null;
+
+    if (is_array($cache)) {
+        return $cache;
+    }
+
+    $path = dirname(__DIR__) . '/data/commercial-airlines.json';
+    if (!is_file($path)) {
+        $cache = [];
+        return $cache;
+    }
+
+    $raw = @file_get_contents($path);
+    $decoded = is_string($raw) ? json_decode($raw, true) : null;
+
+    $cache = is_array($decoded['airlines'] ?? null)
+        ? $decoded['airlines']
+        : [];
+
+    return $cache;
+}
+
 function blockedOperator(string $airlineName, string $flightNumber = ''): bool
 {
     $blockedWords = [
@@ -825,6 +849,23 @@ foreach ($metadataRows as $rowIndex => $row) {
     }
 }
 
+foreach (staticCommercialAirlines() as $icao => $airline) {
+    $icao = normalizedToken((string)$icao);
+    $name = trim((string)($airline['name'] ?? ''));
+
+    if (strlen($icao) !== 3 || $name === '' || blockedOperator($name, (string)($airline['callsign'] ?? ''))) {
+        continue;
+    }
+
+    if (!isset($commercialPrefixIndex[$icao])) {
+        $commercialPrefixIndex[$icao] = [
+            'name' => $name,
+            'iata' => (string)($airline['iata'] ?? ''),
+            'icao' => $icao,
+        ];
+    }
+}
+
 $display = [];
 $seen = [];
 $matchedExact = 0;
@@ -952,6 +993,7 @@ foreach ($regionalAircraft as $aircraft) {
 $coverageStats = [
     'aviationstack_commercial_records' => count($metadataRows),
     'aviationstack_direct_live_positions' => $directAviationstackLive,
+    'static_commercial_airline_prefixes' => count(staticCommercialAirlines()),
     'live_position_provider' => $liveProviderName,
     'regional_adsb_records' => count($regionalAircraft),
     'exact_commercial_matches' => $matchedExact,
