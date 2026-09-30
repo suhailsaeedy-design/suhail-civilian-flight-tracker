@@ -369,11 +369,14 @@ function isAllowedCivilianFlight(array $row): bool
     $dep = strtoupper(trim((string)($row['departure']['iata'] ?? '')));
     $arr = strtoupper(trim((string)($row['arrival']['iata'] ?? '')));
 
-    if ($airlineName === '' || $airlineIata === '' || $flightNumber === '' || $dep === '' || $arr === '') {
+    // A named airline, identifiable flight and route are required.
+    // Airline IATA is useful metadata but is not required because some valid
+    // commercial provider records omit it.
+    if ($airlineName === '' || $flightNumber === '' || $dep === '' || $arr === '') {
         return false;
     }
 
-    if (!preg_match('/^[A-Z0-9]{2,3}$/', $airlineIata)) {
+    if ($airlineIata !== '' && !preg_match('/^[A-Z0-9]{2,3}$/', $airlineIata)) {
         return false;
     }
 
